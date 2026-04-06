@@ -15,11 +15,17 @@ class PlaylistLoading extends PlaylistState {
   const PlaylistLoading();
 }
 
+/// Emitted while the device MediaStore scan is running.
+class PlaylistScanning extends PlaylistState {
+  const PlaylistScanning();
+}
+
 class PlaylistLoaded extends PlaylistState {
   const PlaylistLoaded({
     required this.items,
     this.filtered,
     this.searchQuery = '',
+    this.lastScanCount,
   });
 
   /// Full list (source of truth — persisted).
@@ -29,6 +35,9 @@ class PlaylistLoaded extends PlaylistState {
   final List<MediaItem>? filtered;
 
   final String searchQuery;
+
+  /// How many new items were added by the last scan (null = no scan yet).
+  final int? lastScanCount;
 
   /// The list the UI should render.
   List<MediaItem> get displayItems => filtered ?? items;
@@ -40,16 +49,18 @@ class PlaylistLoaded extends PlaylistState {
     List<MediaItem>? items,
     List<MediaItem>? filtered,
     String?          searchQuery,
+    int?             lastScanCount,
     bool             clearFilter = false,
   }) =>
       PlaylistLoaded(
-        items:       items       ?? this.items,
-        filtered:    clearFilter ? null : (filtered ?? this.filtered),
-        searchQuery: searchQuery ?? this.searchQuery,
+        items:         items         ?? this.items,
+        filtered:      clearFilter ? null : (filtered ?? this.filtered),
+        searchQuery:   searchQuery   ?? this.searchQuery,
+        lastScanCount: lastScanCount ?? this.lastScanCount,
       );
 
   @override
-  List<Object?> get props => [items, filtered, searchQuery];
+  List<Object?> get props => [items, filtered, searchQuery, lastScanCount];
 }
 
 class PlaylistError extends PlaylistState {

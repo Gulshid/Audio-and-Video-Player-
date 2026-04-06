@@ -62,19 +62,87 @@ class _PlaylistPageState extends State<PlaylistPage>
               }
             },
           ),
+          // Scan device for all audio/video automatically
+          IconButton(
+            icon: const Icon(Icons.radar_rounded),
+            tooltip: 'Scan device for media',
+            onPressed: () =>
+                context.read<PlaylistBloc>().add(const PlaylistScanDeviceEvent()),
+          ),
           IconButton(
             icon: const Icon(Icons.add_rounded),
+            tooltip: 'Pick files manually',
             onPressed: () => _pickFiles(context),
           ),
         ],
       ),
-      body: BlocBuilder<PlaylistBloc, PlaylistState>(
+      body: BlocConsumer<PlaylistBloc, PlaylistState>(
+        listener: (context, state) {
+          // Show result snackbar after scan completes
+          if (state is PlaylistLoaded && state.lastScanCount != null) {
+            final count = state.lastScanCount!;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(count == 0
+                    ? 'No new media found on device.'
+                    : 'Found $count new media file${count == 1 ? '' : 's'}!'),
+                duration: const Duration(seconds: 3),
+              ),
+            );
+          }
+          if (state is PlaylistError) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(state.message),
+                backgroundColor: Theme.of(context).colorScheme.error,
+              ),
+            );
+          }
+        },
         builder: (context, state) {
           if (state is PlaylistLoading) {
             return const Center(child: CircularProgressIndicator());
           }
+          // ── Scanning indicator ──────────────────────────
+          if (state is PlaylistScanning) {
+            return Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const CircularProgressIndicator(),
+                  SizedBox(height: 16.h),
+                  Text('Scanning device for media…',
+                      style: Theme.of(context).textTheme.bodyMedium),
+                ],
+              ),
+            );
+          }
           if (state is PlaylistError) {
-            return Center(child: Text(state.message));
+            return Center(
+              child: Padding(
+                padding: EdgeInsets.all(24.r),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.error_outline_rounded,
+                        size: 48.r,
+                        color: Theme.of(context).colorScheme.error),
+                    SizedBox(height: 12.h),
+                    Text(state.message,
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.bodyMedium),
+                    SizedBox(height: 16.h),
+                    FilledButton.icon(
+                      onPressed: () => context
+                          .read<PlaylistBloc>()
+                          .add(const PlaylistLoadEvent()),
+                      icon: const Icon(Icons.refresh_rounded),
+                      label: const Text('Retry'),
+                    ),
+                  ],
+                ),
+              ),
+            );
           }
           if (state is! PlaylistLoaded) {
             return const SizedBox.shrink();
@@ -120,13 +188,11 @@ class _PlaylistPageState extends State<PlaylistPage>
   // ── File picker ──────────────────────────────────────────
 
   Future<void> _pickFiles(BuildContext ctx) async {
+    // FileType.media lets the OS surface ALL audio AND video natively —
+    // no manual extension whitelist needed.
     final result = await FilePicker.platform.pickFiles(
       allowMultiple: true,
-      type: FileType.custom,
-      allowedExtensions: [
-        ...AppConstants.audioExtensions,
-        ...AppConstants.videoExtensions,
-      ],
+      type: FileType.media,
     );
 
     if (result == null || result.files.isEmpty) return;

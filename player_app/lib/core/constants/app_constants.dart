@@ -9,10 +9,18 @@ abstract final class AppConstants {
   static const lastPositionKey = 'last_position_seconds';
 
   // Supported audio extensions
-  static const audioExtensions = ['mp3', 'aac', 'wav', 'm4a', 'flac', 'ogg'];
+  static const audioExtensions = [
+    'mp3', 'aac', 'wav', 'm4a', 'flac', 'ogg',
+    'opus', 'wma', 'aiff', 'aif', 'alac', 'amr',
+    'ape', 'au', 'ra', 'wv', 'mka',
+  ];
 
   // Supported video extensions
-  static const videoExtensions = ['mp4', 'mkv', 'mov', 'avi', 'webm', 'm4v'];
+  static const videoExtensions = [
+    'mp4', 'mkv', 'mov', 'avi', 'webm', 'm4v',
+    'flv', '3gp', 'ts', 'wmv', 'mpg', 'mpeg',
+    'vob', 'ogv', 'rm', 'rmvb', 'divx', 'xvid',
+  ];
 
   // Seek durations
   static const seekForward  = Duration(seconds: 10);

@@ -74,3 +74,8 @@ class PlaylistSearchEvent extends PlaylistEvent {
   @override
   List<Object?> get props => [query];
 }
+
+/// Scan the device storage for all audio and video files.
+class PlaylistScanDeviceEvent extends PlaylistEvent {
+  const PlaylistScanDeviceEvent();
+}

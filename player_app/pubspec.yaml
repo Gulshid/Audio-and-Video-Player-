@@ -67,6 +67,8 @@ dependencies:
   # ── Navigation ───────────────────────────────────────────
   go_router: ^14.0.0
 
+  photo_manager: ^3.3.0
+
 
 dev_dependencies:
   flutter_test:
