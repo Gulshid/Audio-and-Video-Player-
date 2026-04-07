@@ -3,6 +3,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart' hide DeviceType;
 
 import '../../../../core/widgets/responsive_builder.dart';
 import '../../../audio_player/presentation/widgets/audio_mini_player.dart';
+import '../../../playlist/domain/entities/media_item.dart';
 import '../../../playlist/presentation/pages/playlist_page.dart';
 import '_favorites_tab.dart';
 import '_home_tab.dart';
@@ -16,7 +17,8 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  int _index = 0;
+  int        _index       = 0;
+  MediaType? _libraryFilter; // null = show all
 
   static const _destinations = [
     NavigationDestination(
@@ -52,28 +54,37 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  void _onNav(int i) => setState(() => _index = i);
+  /// Called both by the bottom nav bar and by HomeTab's quick-action cards.
+  void _onNav(int i, {MediaType? filter}) {
+    setState(() {
+      _index        = i;
+      _libraryFilter = filter; // null when tapping nav directly
+    });
+  }
 
   Widget get _body {
     return switch (_index) {
-      0 => const HomeTab(),
-      1 => const PlaylistPage(),
+      0 => HomeTab(
+           onNavigateToTab: (tabIndex, {filter}) =>
+               _onNav(tabIndex, filter: filter),
+         ),
+      1 => PlaylistPage(initialFilter: _libraryFilter),
       2 => const FavoritesTab(),
       3 => const SettingsTab(),
-      _ => const HomeTab(),
+      _ => HomeTab(
+           onNavigateToTab: (tabIndex, {filter}) =>
+               _onNav(tabIndex, filter: filter),
+         ),
     };
   }
 
   // ── Phone : bottom nav bar ────────────────────────────────
 
-  Widget _PhoneShell({required int index, required ValueChanged<int> onNav}) {
+  Widget _PhoneShell({required int index, required Function onNav}) {
     return Scaffold(
       body: Stack(
         children: [
-          // Main content — padded so mini player never covers it
           Positioned.fill(child: _body),
-
-          // Mini player floats above bottom nav
           const Positioned(
             left:   0,
             right:  0,
@@ -84,7 +95,7 @@ class _HomePageState extends State<HomePage> {
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: index,
-        onDestinationSelected: onNav,
+        onDestinationSelected: (i) => _onNav(i),
         destinations: _destinations,
         height: kBottomNavigationBarHeight.h,
         labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
@@ -94,14 +105,14 @@ class _HomePageState extends State<HomePage> {
 
   // ── Tablet : side nav rail ────────────────────────────────
 
-  Widget _TabletShell({required int index, required ValueChanged<int> onNav}) {
+  Widget _TabletShell({required int index, required Function onNav}) {
     return Scaffold(
       body: Row(
         children: [
           NavigationRail(
-            selectedIndex:    index,
-            onDestinationSelected: onNav,
-            labelType:        NavigationRailLabelType.all,
+            selectedIndex: index,
+            onDestinationSelected: (i) => _onNav(i),
+            labelType: NavigationRailLabelType.all,
             destinations: _destinations
                 .map((d) => NavigationRailDestination(
                       icon:         d.icon,

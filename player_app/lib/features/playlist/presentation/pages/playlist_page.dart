@@ -16,7 +16,10 @@ import '../../domain/entities/media_item.dart';
 import '../widgets/media_list_tile.dart';
 
 class PlaylistPage extends StatefulWidget {
-  const PlaylistPage({super.key});
+  /// When non-null, the Library will open pre-filtered to this type.
+  final MediaType? initialFilter;
+
+  const PlaylistPage({super.key, this.initialFilter});
 
   @override
   State<PlaylistPage> createState() => _PlaylistPageState();
@@ -24,8 +27,15 @@ class PlaylistPage extends StatefulWidget {
 
 class _PlaylistPageState extends State<PlaylistPage>
     with SingleTickerProviderStateMixin {
-  late final TabController _tabs =
-      TabController(length: 3, vsync: this, initialIndex: 0);
+  late final TabController _tabs = TabController(
+    length:       3,
+    vsync:        this,
+    initialIndex: widget.initialFilter == MediaType.audio
+        ? 1
+        : widget.initialFilter == MediaType.video
+            ? 2
+            : 0,
+  );
   final _searchCtrl = TextEditingController();
   bool _searching = false;
 

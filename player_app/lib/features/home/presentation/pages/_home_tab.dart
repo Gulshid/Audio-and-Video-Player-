@@ -10,7 +10,11 @@ import '../../../playlist/bloc/playlist_state.dart';
 import '../../../playlist/domain/entities/media_item.dart';
 
 class HomeTab extends StatelessWidget {
-  const HomeTab({super.key});
+  /// Called when the user taps a quick-action card that should switch the
+  /// bottom-nav tab (e.g. Library = index 1, Favorites = index 2).
+  final void Function(int tabIndex, {MediaType? filter})? onNavigateToTab;
+
+  const HomeTab({super.key, this.onNavigateToTab});
 
   @override
   Widget build(BuildContext context) {
@@ -26,7 +30,7 @@ class HomeTab extends StatelessWidget {
             SizedBox(height: 24.h),
 
             // ── Quick-action cards ────────────────────────
-            _QuickActions(),
+            _QuickActions(onNavigateToTab: onNavigateToTab),
             SizedBox(height: 28.h),
 
             // ── Recent media ──────────────────────────────
@@ -44,30 +48,35 @@ class HomeTab extends StatelessWidget {
 // ── Quick action cards ────────────────────────────────────────
 
 class _QuickActions extends StatelessWidget {
+  final void Function(int tabIndex, {MediaType? filter})? onNavigateToTab;
+  const _QuickActions({this.onNavigateToTab});
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Row(
       children: [
         _ActionCard(
-          icon:    Icons.music_note_rounded,
-          label:   'Audio',
-          color:   scheme.primary,
-          onTap:   () => context.go('/home', extra: 1),
+          icon:  Icons.music_note_rounded,
+          label: 'Audio',
+          color: scheme.primary,
+          // Navigate to Library tab and filter to Audio only
+          onTap: () => onNavigateToTab?.call(1, filter: MediaType.audio),
         ),
         SizedBox(width: 12.w),
         _ActionCard(
-          icon:    Icons.videocam_rounded,
-          label:   'Video',
-          color:   Colors.deepOrange,
-          onTap:   () => context.go('/home', extra: 1),
+          icon:  Icons.videocam_rounded,
+          label: 'Video',
+          color: Colors.deepOrange,
+          // Navigate to Library tab and filter to Video only
+          onTap: () => onNavigateToTab?.call(1, filter: MediaType.video),
         ),
         SizedBox(width: 12.w),
         _ActionCard(
-          icon:    Icons.favorite_rounded,
-          label:   'Favorites',
-          color:   Colors.pinkAccent,
-          onTap:   () => context.go('/home', extra: 2),
+          icon:  Icons.favorite_rounded,
+          label: 'Favorites',
+          color: Colors.pinkAccent,
+          onTap: () => onNavigateToTab?.call(2),
         ),
       ],
     );
@@ -148,13 +157,13 @@ class _RecentGrid extends StatelessWidget {
         }
 
         return GridView.builder(
-          shrinkWrap:  true,
-          physics:     const NeverScrollableScrollPhysics(),
+          shrinkWrap: true,
+          physics:    const NeverScrollableScrollPhysics(),
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount:    2,
-            mainAxisSpacing:   12.h,
-            crossAxisSpacing:  12.w,
-            childAspectRatio:  1.6,
+            crossAxisCount:   2,
+            mainAxisSpacing:  12.h,
+            crossAxisSpacing: 12.w,
+            childAspectRatio: 1.6,
           ),
           itemCount:   items.length,
           itemBuilder: (context, i) => _MediaCard(item: items[i]),

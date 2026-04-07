@@ -11,20 +11,20 @@ final sl = GetIt.instance;
 /// Call once in [main] before [runApp].
 Future<void> initDependencies() async {
   // ── Cubits / BLoCs ───────────────────────────────────────
-  // registerFactory → new instance every time it's requested.
-  // registerLazySingleton → created once, reused everywhere.
-
   sl.registerLazySingleton<ThemeCubit>(() => ThemeCubit());
 
-  // AudioBloc is a singleton so the mini-player and the full
-  // player page share the same playback state.
-  sl.registerLazySingleton<AudioBloc>(() => AudioBloc());
-
-  // VideoBloc is also a singleton so navigation to the video
-  // page doesn't lose state.
-  sl.registerLazySingleton<VideoBloc>(() => VideoBloc());
-
-  // PlaylistBloc is a singleton — one source of truth for the
-  // media library throughout the app.
+  // PlaylistBloc must be registered first — AudioBloc depends on it
+  // so it can persist playback positions back into Hive.
   sl.registerLazySingleton<PlaylistBloc>(() => PlaylistBloc());
+
+  // AudioBloc receives a reference to PlaylistBloc so it can call
+  // PlaylistUpdatePositionEvent when a track changes or stops.
+  sl.registerLazySingleton<AudioBloc>(
+    () => AudioBloc(playlistBloc: sl<PlaylistBloc>()),
+  );
+
+  // VideoBloc receives a reference to PlaylistBloc for the same reason.
+  sl.registerLazySingleton<VideoBloc>(
+    () => VideoBloc(playlistBloc: sl<PlaylistBloc>()),
+  );
 }

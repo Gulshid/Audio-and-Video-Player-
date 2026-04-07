@@ -88,3 +88,9 @@ class AudioPlayingStateChangedEvent extends AudioEvent {
   @override
   List<Object?> get props => [isPlaying];
 }
+
+/// Internal — fired when just_audio reports ProcessingState.completed.
+/// Triggers auto-advance to the next track (or repeat-one / stop).
+class AudioTrackCompletedEvent extends AudioEvent {
+  const AudioTrackCompletedEvent();
+}

@@ -1,14 +1,20 @@
 import 'dart:async';
 import 'dart:io';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../../core/constants/app_constants.dart';
+import '../../playlist/bloc/playlist_bloc.dart';
+import '../../playlist/bloc/playlist_event.dart';
 import 'video_event.dart';
 import 'video_state.dart';
 
 class VideoBloc extends Bloc<VideoEvent, VideoState> {
-  VideoBloc() : super(const VideoInitial()) {
+  VideoBloc({PlaylistBloc? playlistBloc})
+      : _playlistBloc = playlistBloc,
+        super(const VideoInitial()) {
     on<VideoInitializeEvent>      (_onInit);
     on<VideoPlayEvent>            (_onPlay);
     on<VideoPauseEvent>           (_onPause);
@@ -25,6 +31,7 @@ class VideoBloc extends Bloc<VideoEvent, VideoState> {
 
   VideoPlayerController? _controller;
   Timer?                 _posTimer;
+  final PlaylistBloc?    _playlistBloc;
 
   // ── Event handlers ───────────────────────────────────────
 
@@ -32,6 +39,9 @@ class VideoBloc extends Bloc<VideoEvent, VideoState> {
     VideoInitializeEvent event,
     Emitter<VideoState> emit,
   ) async {
+    // Persist position of the previous video before replacing the controller
+    _persistCurrentPosition();
+
     emit(const VideoLoading());
     await _disposeController();
 
@@ -83,8 +93,8 @@ class VideoBloc extends Bloc<VideoEvent, VideoState> {
 
   Future<void> _onSkipForward(VideoSkipForwardEvent _, Emitter<VideoState> emit) async {
     if (state is! VideoReady) return;
-    final s = state as VideoReady;
-    final pos = s.position + AppConstants.seekForward;
+    final s       = state as VideoReady;
+    final pos     = s.position + AppConstants.seekForward;
     final clamped = pos > s.duration ? s.duration : pos;
     await _controller?.seekTo(clamped);
     emit(s.copyWith(position: clamped));
@@ -92,8 +102,8 @@ class VideoBloc extends Bloc<VideoEvent, VideoState> {
 
   Future<void> _onSkipBackward(VideoSkipBackwardEvent _, Emitter<VideoState> emit) async {
     if (state is! VideoReady) return;
-    final s = state as VideoReady;
-    final pos = s.position - AppConstants.seekBackward;
+    final s       = state as VideoReady;
+    final pos     = s.position - AppConstants.seekBackward;
     final clamped = pos.isNegative ? Duration.zero : pos;
     await _controller?.seekTo(clamped);
     emit(s.copyWith(position: clamped));
@@ -107,7 +117,7 @@ class VideoBloc extends Bloc<VideoEvent, VideoState> {
 
   Future<void> _onMute(VideoToggleMuteEvent _, Emitter<VideoState> emit) async {
     if (state is! VideoReady) return;
-    final s = state as VideoReady;
+    final s     = state as VideoReady;
     final muted = !s.isMuted;
     await _controller?.setVolume(muted ? 0 : s.volume);
     emit(s.copyWith(isMuted: muted));
@@ -115,7 +125,9 @@ class VideoBloc extends Bloc<VideoEvent, VideoState> {
 
   void _onFullscreen(VideoToggleFullscreenEvent _, Emitter<VideoState> emit) {
     if (state is! VideoReady) return;
-    emit((state as VideoReady).copyWith(isFullscreen: !(state as VideoReady).isFullscreen));
+    emit((state as VideoReady).copyWith(
+      isFullscreen: !(state as VideoReady).isFullscreen,
+    ));
   }
 
   Future<void> _onSpeed(VideoSetSpeedEvent event, Emitter<VideoState> emit) async {
@@ -125,6 +137,7 @@ class VideoBloc extends Bloc<VideoEvent, VideoState> {
   }
 
   Future<void> _onDispose(VideoDisposeEvent _, Emitter<VideoState> emit) async {
+    _persistCurrentPosition();
     await _disposeController();
     emit(const VideoInitial());
   }
@@ -151,8 +164,21 @@ class VideoBloc extends Bloc<VideoEvent, VideoState> {
     _controller = null;
   }
 
+  /// Saves the current video position to PlaylistBloc for resume support.
+  void _persistCurrentPosition() {
+    if (state is! VideoReady) return;
+    final s          = state as VideoReady;
+    final posSeconds = s.position.inSeconds;
+    if (posSeconds < 5) return;
+    _playlistBloc?.add(
+      PlaylistUpdatePositionEvent(s.item.id, posSeconds),
+    );
+    debugPrint('💾 Video: saved ${posSeconds}s for "${s.item.title}"');
+  }
+
   @override
   Future<void> close() async {
+    _persistCurrentPosition();
     await _disposeController();
     return super.close();
   }
