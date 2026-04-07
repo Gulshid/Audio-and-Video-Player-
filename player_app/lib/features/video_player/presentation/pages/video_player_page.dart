@@ -28,26 +28,24 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
   Timer? _hideTimer;
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────
+late final VideoBloc _videoBloc;
 
-  @override
-  void initState() {
-    super.initState();
-    context.read<VideoBloc>().add(VideoInitializeEvent(widget.item));
-    _applyImmersiveMode();
-    // Show controls on open, start the 3-second auto-hide countdown
-    _scheduleHide();
-  }
+@override
+void initState() {
+  super.initState();
+  _videoBloc = context.read<VideoBloc>(); // cache it here — tree is alive
+  _videoBloc.add(VideoInitializeEvent(widget.item));
+  _applyImmersiveMode();
+  _scheduleHide();
+}
 
-  @override
-  void dispose() {
-    _hideTimer?.cancel();
-    // mounted check guards rapid back-swipe before initState completes
-    if (mounted) {
-      context.read<VideoBloc>().add(const VideoDisposeEvent());
-    }
-    _restoreSystemUI();
-    super.dispose();
-  }
+@override
+void dispose() {
+  _hideTimer?.cancel();
+  _videoBloc.add(const VideoDisposeEvent()); // no context needed
+  _restoreSystemUI();
+  super.dispose();
+}
 
   // ── System UI ─────────────────────────────────────────────────────────────
 
