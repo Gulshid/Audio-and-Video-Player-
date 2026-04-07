@@ -39,7 +39,6 @@ class VideoBloc extends Bloc<VideoEvent, VideoState> {
     VideoInitializeEvent event,
     Emitter<VideoState> emit,
   ) async {
-    // Persist position of the previous video before replacing the controller
     _persistCurrentPosition();
 
     emit(const VideoLoading());
@@ -91,7 +90,8 @@ class VideoBloc extends Bloc<VideoEvent, VideoState> {
     emit((state as VideoReady).copyWith(position: event.position));
   }
 
-  Future<void> _onSkipForward(VideoSkipForwardEvent _, Emitter<VideoState> emit) async {
+  Future<void> _onSkipForward(
+      VideoSkipForwardEvent _, Emitter<VideoState> emit) async {
     if (state is! VideoReady) return;
     final s       = state as VideoReady;
     final pos     = s.position + AppConstants.seekForward;
@@ -100,7 +100,8 @@ class VideoBloc extends Bloc<VideoEvent, VideoState> {
     emit(s.copyWith(position: clamped));
   }
 
-  Future<void> _onSkipBackward(VideoSkipBackwardEvent _, Emitter<VideoState> emit) async {
+  Future<void> _onSkipBackward(
+      VideoSkipBackwardEvent _, Emitter<VideoState> emit) async {
     if (state is! VideoReady) return;
     final s       = state as VideoReady;
     final pos     = s.position - AppConstants.seekBackward;
@@ -109,7 +110,8 @@ class VideoBloc extends Bloc<VideoEvent, VideoState> {
     emit(s.copyWith(position: clamped));
   }
 
-  Future<void> _onVolume(VideoSetVolumeEvent event, Emitter<VideoState> emit) async {
+  Future<void> _onVolume(
+      VideoSetVolumeEvent event, Emitter<VideoState> emit) async {
     if (state is! VideoReady) return;
     await _controller?.setVolume(event.volume.clamp(0.0, 1.0));
     emit((state as VideoReady).copyWith(volume: event.volume));
@@ -130,19 +132,25 @@ class VideoBloc extends Bloc<VideoEvent, VideoState> {
     ));
   }
 
-  Future<void> _onSpeed(VideoSetSpeedEvent event, Emitter<VideoState> emit) async {
+  Future<void> _onSpeed(
+      VideoSetSpeedEvent event, Emitter<VideoState> emit) async {
     if (state is! VideoReady) return;
     await _controller?.setPlaybackSpeed(event.speed);
     emit((state as VideoReady).copyWith(playbackSpeed: event.speed));
   }
 
-  Future<void> _onDispose(VideoDisposeEvent _, Emitter<VideoState> emit) async {
+  Future<void> _onDispose(
+      VideoDisposeEvent _, Emitter<VideoState> emit) async {
     _persistCurrentPosition();
     await _disposeController();
     emit(const VideoInitial());
   }
 
-  void _onPosition(VideoPositionUpdatedEvent event, Emitter<VideoState> emit) {
+  void _onPosition(
+      VideoPositionUpdatedEvent event, Emitter<VideoState> emit) {
+    // FIX: guard isClosed so the timer can't emit into a closed bloc
+    // after the page disposes while an async gap is in flight.
+    if (isClosed) return;
     if (state is VideoReady) {
       emit((state as VideoReady).copyWith(position: event.position));
     }
@@ -153,6 +161,9 @@ class VideoBloc extends Bloc<VideoEvent, VideoState> {
   void _startPositionTimer() {
     _posTimer?.cancel();
     _posTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
+      // FIX: check isClosed before adding events so a disposed bloc
+      // never receives timer ticks after navigation.
+      if (isClosed) return;
       final pos = _controller?.value.position;
       if (pos != null) add(VideoPositionUpdatedEvent(pos));
     });
@@ -160,11 +171,11 @@ class VideoBloc extends Bloc<VideoEvent, VideoState> {
 
   Future<void> _disposeController() async {
     _posTimer?.cancel();
+    _posTimer = null;
     await _controller?.dispose();
     _controller = null;
   }
 
-  /// Saves the current video position to PlaylistBloc for resume support.
   void _persistCurrentPosition() {
     if (state is! VideoReady) return;
     final s          = state as VideoReady;

@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
@@ -8,98 +7,79 @@ import '../../bloc/video_bloc.dart';
 import '../../bloc/video_event.dart';
 import '../../bloc/video_state.dart';
 
-/// Overlay controls that auto-hide after 3 seconds of inactivity.
-class VideoControls extends StatefulWidget {
+/// Pure controls overlay — NO internal visibility timer or GestureDetector.
+/// Visibility is owned entirely by VideoPlayerPage (_showControls + Timer).
+/// This widget just renders the UI when it is told to be visible.
+class VideoControls extends StatelessWidget {
   const VideoControls({super.key});
 
   @override
-  State<VideoControls> createState() => _VideoControlsState();
-}
-
-class _VideoControlsState extends State<VideoControls> {
-  bool  _visible = true;
-  Timer? _hideTimer;
-
-  @override
-  void initState() {
-    super.initState();
-    _resetTimer();
-  }
-
-  void _resetTimer() {
-    _hideTimer?.cancel();
-    setState(() => _visible = true);
-    _hideTimer = Timer(const Duration(seconds: 3), () {
-      if (mounted) setState(() => _visible = false);
-    });
-  }
-
-  @override
-  void dispose() {
-    _hideTimer?.cancel();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: _resetTimer,
-      child: AnimatedOpacity(
-        opacity: _visible ? 1.0 : 0.0,
-        duration: const Duration(milliseconds: 300),
-        child: Container(
+    return BlocBuilder<VideoBloc, VideoState>(
+      // Only rebuild when the relevant fields change, not on every position tick
+      buildWhen: (prev, next) {
+        if (prev.runtimeType != next.runtimeType) return true;
+        if (next is! VideoReady) return true;
+        if (prev is! VideoReady) return true;
+        return prev.isPlaying     != next.isPlaying     ||
+               prev.isFullscreen  != next.isFullscreen  ||
+               prev.playbackSpeed != next.playbackSpeed ||
+               prev.isMuted       != next.isMuted       ||
+               prev.duration      != next.duration;
+      },
+      builder: (context, state) {
+        if (state is! VideoReady) return const SizedBox.shrink();
+        final bloc = context.read<VideoBloc>();
+
+        return Container(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.topCenter,
               end:   Alignment.bottomCenter,
               colors: [
-                Color(0x88000000),
+                Color(0x99000000),
                 Color(0x00000000),
                 Color(0x00000000),
-                Color(0x88000000),
+                Color(0x99000000),
               ],
               stops: [0.0, 0.3, 0.7, 1.0],
             ),
           ),
-          child: BlocBuilder<VideoBloc, VideoState>(
-            builder: (context, state) {
-              if (state is! VideoReady) return const SizedBox.shrink();
-              final bloc = context.read<VideoBloc>();
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              // ── Top bar ────────────────────────────────────────────────
+              _TopBar(
+                title:        state.item.title,
+                isFullscreen: state.isFullscreen,
+                onFullscreen: () =>
+                    bloc.add(const VideoToggleFullscreenEvent()),
+              ),
 
-              return Column(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  // ── Top bar ──────────────────────────────
-                  _TopBar(
-                    title:       state.item.title,
-                    isFullscreen: state.isFullscreen,
-                    onFullscreen: () =>
-                        bloc.add(const VideoToggleFullscreenEvent()),
-                  ),
+              // ── Centre play / skip ─────────────────────────────────────
+              _CenterControls(
+                isPlaying: state.isPlaying,
+                onPlay:    () => bloc.add(const VideoPlayEvent()),
+                onPause:   () => bloc.add(const VideoPauseEvent()),
+                onBack:    () => bloc.add(const VideoSkipBackwardEvent()),
+                onForward: () => bloc.add(const VideoSkipForwardEvent()),
+              ),
 
-                  // ── Centre play/pause ────────────────────
-                  _CenterControls(
-                    isPlaying: state.isPlaying,
-                    onPlay:    () => bloc.add(const VideoPlayEvent()),
-                    onPause:   () => bloc.add(const VideoPauseEvent()),
-                    onBack:    () => bloc.add(const VideoSkipBackwardEvent()),
-                    onForward: () => bloc.add(const VideoSkipForwardEvent()),
-                  ),
-
-                  // ── Bottom seek + time ───────────────────
-                  _BottomBar(state: state, bloc: bloc),
-                ],
-              );
-            },
+              // ── Bottom seek + time ─────────────────────────────────────
+              // Separate BlocBuilder so only the seek bar re-renders on
+              // every position tick — the rest of the UI stays calm.
+              _SeekSection(bloc: bloc),
+            ],
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }
 
-// ── Sub-widgets ───────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Top bar
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _TopBar extends StatelessWidget {
   const _TopBar({
@@ -107,8 +87,8 @@ class _TopBar extends StatelessWidget {
     required this.isFullscreen,
     required this.onFullscreen,
   });
-  final String title;
-  final bool   isFullscreen;
+  final String       title;
+  final bool         isFullscreen;
   final VoidCallback onFullscreen;
 
   @override
@@ -126,8 +106,11 @@ class _TopBar extends StatelessWidget {
               title,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: Colors.white, fontSize: 15.sp,
-                  fontWeight: FontWeight.w500),
+              style: TextStyle(
+                color:      Colors.white,
+                fontSize:   15.sp,
+                fontWeight: FontWeight.w500,
+              ),
             ),
           ),
           IconButton(
@@ -145,6 +128,10 @@ class _TopBar extends StatelessWidget {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Centre controls
+// ─────────────────────────────────────────────────────────────────────────────
+
 class _CenterControls extends StatelessWidget {
   const _CenterControls({
     required this.isPlaying,
@@ -161,24 +148,16 @@ class _CenterControls extends StatelessWidget {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        _CircleBtn(
-          icon: Icons.replay_10_rounded,
-          onTap: onBack,
-          size: 36.r,
-        ),
+        _CircleBtn(icon: Icons.replay_10_rounded, onTap: onBack,    size: 36.r),
         SizedBox(width: 24.w),
         _CircleBtn(
-          icon: isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+          icon:  isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
           onTap: isPlaying ? onPause : onPlay,
-          size: 56.r,
+          size:  56.r,
           large: true,
         ),
         SizedBox(width: 24.w),
-        _CircleBtn(
-          icon: Icons.forward_10_rounded,
-          onTap: onForward,
-          size: 36.r,
-        ),
+        _CircleBtn(icon: Icons.forward_10_rounded, onTap: onForward, size: 36.r),
       ],
     );
   }
@@ -205,9 +184,7 @@ class _CircleBtn extends StatelessWidget {
         height: size,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          color: large
-              ? Colors.white
-              : Colors.white.withOpacity(.2),
+          color: large ? Colors.white : Colors.white.withOpacity(.2),
         ),
         child: Icon(
           icon,
@@ -219,67 +196,83 @@ class _CircleBtn extends StatelessWidget {
   }
 }
 
-class _BottomBar extends StatelessWidget {
-  const _BottomBar({required this.state, required this.bloc});
-  final VideoReady state;
-  final VideoBloc  bloc;
+// ─────────────────────────────────────────────────────────────────────────────
+// Seek section — own BlocBuilder so position ticks don't rebuild the whole tree
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _SeekSection extends StatelessWidget {
+  const _SeekSection({required this.bloc});
+  final VideoBloc bloc;
 
   @override
   Widget build(BuildContext context) {
-    final max = state.duration.inMilliseconds.toDouble();
-    final val = state.position.inMilliseconds
-        .toDouble()
-        .clamp(0.0, max > 0 ? max : 1.0);
+    return BlocBuilder<VideoBloc, VideoState>(
+      builder: (context, state) {
+        if (state is! VideoReady) return const SizedBox.shrink();
 
-    return Padding(
-      padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 8.h),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          SliderTheme(
-            data: SliderTheme.of(context).copyWith(
-              activeTrackColor:   Colors.white,
-              inactiveTrackColor: Colors.white38,
-              thumbColor:         Colors.white,
-              overlayColor:       Colors.white24,
-              trackHeight:        2.h,
-              thumbShape: RoundSliderThumbShape(enabledThumbRadius: 6.r),
-            ),
-            child: Slider(
-              value: val,
-              min:   0,
-              max:   max > 0 ? max : 1.0,
-              onChanged: (v) => bloc.add(
-                VideoSeekEvent(Duration(milliseconds: v.toInt())),
-              ),
-            ),
-          ),
-          Padding(
-            padding: EdgeInsets.symmetric(horizontal: 4.w),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(DurationFormatter.format(state.position),
-                    style: TextStyle(color: Colors.white70, fontSize: 11.sp)),
-                // Speed selector
-                GestureDetector(
-                  onTap: () => _pickSpeed(context),
-                  child: Text(
-                    '${state.playbackSpeed}x',
-                    style: TextStyle(color: Colors.white70, fontSize: 11.sp),
+        final maxMs = state.duration.inMilliseconds.toDouble();
+        final curMs = state.position.inMilliseconds
+            .toDouble()
+            .clamp(0.0, maxMs > 0 ? maxMs : 1.0);
+
+        return Padding(
+          padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 8.h),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SliderTheme(
+                data: SliderTheme.of(context).copyWith(
+                  activeTrackColor:   Colors.white,
+                  inactiveTrackColor: Colors.white38,
+                  thumbColor:         Colors.white,
+                  overlayColor:       Colors.white24,
+                  trackHeight:        2.h,
+                  thumbShape:
+                      RoundSliderThumbShape(enabledThumbRadius: 6.r),
+                ),
+                child: Slider(
+                  value: curMs,
+                  min:   0,
+                  max:   maxMs > 0 ? maxMs : 1.0,
+                  onChanged: (v) => bloc.add(
+                    VideoSeekEvent(Duration(milliseconds: v.toInt())),
                   ),
                 ),
-                Text(DurationFormatter.format(state.duration),
-                    style: TextStyle(color: Colors.white70, fontSize: 11.sp)),
-              ],
-            ),
+              ),
+              Padding(
+                padding: EdgeInsets.symmetric(horizontal: 4.w),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      DurationFormatter.format(state.position),
+                      style: TextStyle(
+                          color: Colors.white70, fontSize: 11.sp),
+                    ),
+                    GestureDetector(
+                      onTap: () => _pickSpeed(context, state),
+                      child: Text(
+                        '${state.playbackSpeed}x',
+                        style: TextStyle(
+                            color: Colors.white70, fontSize: 11.sp),
+                      ),
+                    ),
+                    Text(
+                      DurationFormatter.format(state.duration),
+                      style: TextStyle(
+                          color: Colors.white70, fontSize: 11.sp),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
-  void _pickSpeed(BuildContext context) {
+  void _pickSpeed(BuildContext context, VideoReady state) {
     const speeds = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
     showModalBottomSheet(
       context: context,

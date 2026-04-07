@@ -76,6 +76,9 @@ class VideoReady extends VideoState {
 
   @override
   List<Object?> get props => [
+        // FIX: controller was missing — Equatable never saw controller changes.
+        // Use identityHashCode so we don't compare controller internals.
+        identityHashCode(controller),
         item, isPlaying, position, duration,
         volume, isMuted, isFullscreen, playbackSpeed,
       ];
