@@ -65,44 +65,48 @@ class AudioBloc extends Bloc<AudioEvent, AudioState> {
 
   // ── Event handlers ───────────────────────────────────────
 
-  Future<void> _onPlay(
-    AudioPlayEvent event,
-    Emitter<AudioState> emit,
-  ) async {
-    emit(const AudioLoading());
-    try {
-      final item  = event.item;
-      final queue = event.playlist.isEmpty ? [item] : event.playlist;
-      final index = queue.indexWhere((e) => e.id == item.id).clamp(0, queue.length - 1);
+Future<void> _onPlay(
+  AudioPlayEvent event,
+  Emitter<AudioState> emit,
+) async {
+  emit(const AudioLoading());
+  try {
+    final item  = event.item;
+    final queue = event.playlist.isEmpty ? [item] : event.playlist;
+    final index = queue.indexWhere((e) => e.id == item.id).clamp(0, queue.length - 1);
 
-      _persistCurrentPosition();
+    _persistCurrentPosition();
 
-      if (item.isNetwork) {
-        await _player.setUrl(item.path);
-      } else {
-        await _player.setFilePath(item.path);
-      }
-
-      if (item.lastPositionSeconds > 0) {
-        await _player.seek(item.lastPosition);
-      }
-
-      await _player.play();
-
-      _shufflePlayed.clear();
-      _shufflePlayed.add(index);
-
-      emit(AudioReady(
-        currentItem: item,
-        isPlaying:   true,
-        duration:    _player.duration ?? Duration.zero,
-        playlist:    queue,
-        queueIndex:  index,
-      ));
-    } catch (e) {
-      emit(AudioError('Failed to play: ${e.toString()}'));
+    // Load the source and AWAIT the duration before emitting AudioReady
+    final Duration? loadedDuration;
+    if (item.isNetwork) {
+      loadedDuration = await _player.setUrl(item.path);
+    } else {
+      loadedDuration = await _player.setFilePath(item.path);
     }
+
+    if (item.lastPositionSeconds > 0) {
+      await _player.seek(item.lastPosition);
+    }
+
+    _shufflePlayed.clear();
+    _shufflePlayed.add(index);
+
+    // Emit AudioReady BEFORE calling play() so the position/duration
+    // stream events that follow have a valid AudioReady state to update.
+    emit(AudioReady(
+      currentItem: item,
+      isPlaying:   false,           // will be set to true by the stream event
+      duration:    loadedDuration ?? Duration.zero,
+      playlist:    queue,
+      queueIndex:  index,
+    ));
+
+    await _player.play();
+  } catch (e) {
+    emit(AudioError('Failed to play: ${e.toString()}'));
   }
+}
 
   Future<void> _onPause(AudioPauseEvent _, Emitter<AudioState> emit) async {
     await _player.pause();
@@ -226,22 +230,26 @@ class AudioBloc extends Bloc<AudioEvent, AudioState> {
   // ── Internal stream events ───────────────────────────────
 
   void _onPosition(AudioPositionUpdatedEvent event, Emitter<AudioState> emit) {
-    if (state is AudioReady) {
-      emit((state as AudioReady).copyWith(position: event.position));
-    }
+  if (state is AudioReady) {
+    emit((state as AudioReady).copyWith(position: event.position));
   }
+  // Silently ignore during AudioLoading — no needle to move yet.
+}
 
   void _onDuration(AudioDurationUpdatedEvent event, Emitter<AudioState> emit) {
-    if (state is AudioReady && event.duration != null) {
-      emit((state as AudioReady).copyWith(duration: event.duration));
-    }
+  if (event.duration == null) return;
+  if (state is AudioReady) {
+    emit((state as AudioReady).copyWith(duration: event.duration));
   }
+  // If we're still in AudioLoading the duration will be set by _onPlay's
+  // loadedDuration return value — nothing to do here.
+}
 
   void _onPlayingState(AudioPlayingStateChangedEvent event, Emitter<AudioState> emit) {
-    if (state is AudioReady) {
-      emit((state as AudioReady).copyWith(isPlaying: event.isPlaying));
-    }
+  if (state is AudioReady) {
+    emit((state as AudioReady).copyWith(isPlaying: event.isPlaying));
   }
+}
 
   // ── Shuffle / next-index logic ───────────────────────────
 

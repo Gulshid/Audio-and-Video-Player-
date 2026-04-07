@@ -254,27 +254,30 @@ class _MediaList extends StatelessWidget {
       );
     }
 
-    return ReorderableListView.builder(
-      padding:      EdgeInsets.symmetric(horizontal: 12.w, vertical: 8.h),
-      itemCount:    items.length,
-      onReorder:    (o, n) => context
-          .read<PlaylistBloc>()
-          .add(PlaylistReorderEvent(o, n)),
-      itemBuilder:  (context, i) {
-        final item = items[i];
-        return MediaListTile(
-          key:  ValueKey(item.id),
-          item: item,
-          onTap: () => _play(context, item, items),
-          onFavoriteTap: () => context
+    // Replace your ReorderableListView.builder in _MediaList
+
+        return ReorderableListView.builder(
+          padding:                  EdgeInsets.symmetric(horizontal: 12.w, vertical: 8.h),
+          itemCount:                items.length,
+          buildDefaultDragHandles:  false,   // ← kills the long-press conflict
+          onReorder: (o, n) => context
               .read<PlaylistBloc>()
-              .add(PlaylistToggleFavoriteEvent(item.id)),
-          onDelete: () => context
-              .read<PlaylistBloc>()
-              .add(PlaylistRemoveItemEvent(item.id)),
+              .add(PlaylistReorderEvent(o, n)),
+          itemBuilder: (context, i) {
+            final item = items[i];
+            return MediaListTile(
+              key:           ValueKey(item.id),
+              item:          item,
+              onTap:         () => _play(context, item, items),
+              onFavoriteTap: () => context
+                  .read<PlaylistBloc>()
+                  .add(PlaylistToggleFavoriteEvent(item.id)),
+              onDelete: () => context
+                  .read<PlaylistBloc>()
+                  .add(PlaylistRemoveItemEvent(item.id)),
+            );
+          },
         );
-      },
-    );
   }
 
   void _play(BuildContext context, MediaItem item, List<MediaItem> queue) {
