@@ -51,16 +51,99 @@ class _PlaylistPageState extends State<PlaylistPage>
     return Scaffold(
       appBar: AppBar(
         title: _searching ? _SearchField() : const Text('Library'),
-        bottom: TabBar(
-          controller: _tabs,
-          labelStyle:
-              TextStyle(fontSize: 13.sp, fontWeight: FontWeight.w600),
-          tabs: const [
-            Tab(text: 'All'),
-            Tab(text: 'Audio'),
-            Tab(text: 'Video'),
+        bottom: PreferredSize(
+  preferredSize: Size.fromHeight(56.h),
+  child: Padding(
+    padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 8.h),
+    child: TabBar(
+      controller: _tabs,
+      isScrollable: true,
+      tabAlignment: TabAlignment.center,
+      indicator: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            Theme.of(context).colorScheme.primary,
+            Theme.of(context).colorScheme.tertiary,
           ],
         ),
+        borderRadius: BorderRadius.circular(20.r),
+        boxShadow: [
+          BoxShadow(
+            color: Theme.of(context).colorScheme.primary.withOpacity(.35),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      indicatorSize: TabBarIndicatorSize.tab,
+      dividerColor: Colors.transparent,
+      labelColor: Colors.white,
+      unselectedLabelColor: Theme.of(context).colorScheme.onSurface.withOpacity(.6),
+      labelStyle: TextStyle(fontSize: 13.sp, fontWeight: FontWeight.w600),
+      padding: EdgeInsets.zero,
+      labelPadding: EdgeInsets.symmetric(horizontal: 6.w),
+      tabs: [
+        Tab(
+          child: Container(
+            padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 6.h),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20.r),
+              border: Border.all(
+                color: Theme.of(context).colorScheme.outline.withOpacity(.2),
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.library_music_rounded, size: 16.r),
+                SizedBox(width: 6.w),
+                const Text('All'),
+              ],
+            ),
+          ),
+        ),
+        Tab(
+          child: Container(
+            padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 6.h),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20.r),
+              border: Border.all(
+                color: Theme.of(context).colorScheme.outline.withOpacity(.2),
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.headphones_rounded, size: 16.r),
+                SizedBox(width: 6.w),
+                const Text('Audio'),
+              ],
+            ),
+          ),
+        ),
+        Tab(
+          child: Container(
+            padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 6.h),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20.r),
+              border: Border.all(
+                color: Theme.of(context).colorScheme.outline.withOpacity(.2),
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.videocam_rounded, size: 16.r),
+                SizedBox(width: 6.w),
+                const Text('Video'),
+              ],
+            ),
+          ),
+        ),
+      ],
+    ),
+  ),
+),
         actions: [
           IconButton(
             icon: Icon(_searching ? Icons.close : Icons.search_rounded),
