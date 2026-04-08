@@ -72,6 +72,7 @@ dependencies:
   video_thumbnail: ^0.5.3
 
 
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

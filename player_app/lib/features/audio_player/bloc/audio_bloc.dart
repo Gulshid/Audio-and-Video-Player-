@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:media_player/features/audio_player/handler/audio_handler.dart';
 
 import '../../../core/constants/app_constants.dart';
 import '../../playlist/bloc/playlist_bloc.dart';
@@ -12,8 +13,11 @@ import 'audio_event.dart';
 import 'audio_state.dart';
 
 class AudioBloc extends Bloc<AudioEvent, AudioState> {
-  AudioBloc({PlaylistBloc? playlistBloc})
-      : _playlistBloc = playlistBloc,
+  AudioBloc({
+    required AppAudioHandler handler,
+    PlaylistBloc? playlistBloc,
+  })  : _handler = handler,
+        _playlistBloc = playlistBloc,
         super(const AudioInitial()) {
     on<AudioPlayEvent>               (_onPlay);
     on<AudioPauseEvent>              (_onPause);
@@ -35,11 +39,13 @@ class AudioBloc extends Bloc<AudioEvent, AudioState> {
     _subscribeToPlayer();
   }
 
-  final AudioPlayer    _player = AudioPlayer();
-  final PlaylistBloc?  _playlistBloc;
-  final Random         _random = Random();
+  final AppAudioHandler _handler;
+  final PlaylistBloc?   _playlistBloc;
+  final Random          _random = Random();
 
-  // Tracks which indices have been played during the current shuffle session
+  // Convenience getter — same player instance inside the handler
+  AudioPlayer get _player => _handler.player;
+
   final Set<int> _shufflePlayed = {};
 
   StreamSubscription<Duration>?    _posSub;
@@ -54,8 +60,6 @@ class AudioBloc extends Bloc<AudioEvent, AudioState> {
         (dur) => add(AudioDurationUpdatedEvent(dur)));
     _playSub = _player.playingStream.listen(
         (playing) => add(AudioPlayingStateChangedEvent(isPlaying: playing)));
-
-    // Auto-advance when a track finishes naturally
     _stateSub = _player.playerStateStream.listen((ps) {
       if (ps.processingState == ProcessingState.completed) {
         add(const AudioTrackCompletedEvent());
@@ -65,85 +69,81 @@ class AudioBloc extends Bloc<AudioEvent, AudioState> {
 
   // ── Event handlers ───────────────────────────────────────
 
-Future<void> _onPlay(
-  AudioPlayEvent event,
-  Emitter<AudioState> emit,
-) async {
-  emit(const AudioLoading());
-  try {
-    final item  = event.item;
-    final queue = event.playlist.isEmpty ? [item] : event.playlist;
-    final index = queue.indexWhere((e) => e.id == item.id).clamp(0, queue.length - 1);
+  Future<void> _onPlay(
+    AudioPlayEvent event,
+    Emitter<AudioState> emit,
+  ) async {
+    emit(const AudioLoading());
+    try {
+      final item  = event.item;
+      final queue = event.playlist.isEmpty ? [item] : event.playlist;
+      final index = queue
+          .indexWhere((e) => e.id == item.id)
+          .clamp(0, queue.length - 1);
 
-    _persistCurrentPosition();
+      _persistCurrentPosition();
 
-    // Load the source and AWAIT the duration before emitting AudioReady
-    final Duration? loadedDuration;
-    if (item.isNetwork) {
-      loadedDuration = await _player.setUrl(item.path);
-    } else {
-      loadedDuration = await _player.setFilePath(item.path);
+      // ← handler loads metadata into the OS notification AND plays
+      final loadedDuration = await _handler.loadAndPlay(item);
+
+      if (item.lastPositionSeconds > 0) {
+        await _player.seek(item.lastPosition);
+      }
+
+      _shufflePlayed
+        ..clear()
+        ..add(index);
+
+      emit(AudioReady(
+        currentItem: item,
+        isPlaying:   true,
+        duration:    loadedDuration ?? Duration.zero,
+        playlist:    queue,
+        queueIndex:  index,
+      ));
+    } catch (e) {
+      emit(AudioError('Failed to play: ${e.toString()}'));
     }
-
-    if (item.lastPositionSeconds > 0) {
-      await _player.seek(item.lastPosition);
-    }
-
-    _shufflePlayed.clear();
-    _shufflePlayed.add(index);
-
-    // Emit AudioReady BEFORE calling play() so the position/duration
-    // stream events that follow have a valid AudioReady state to update.
-    emit(AudioReady(
-      currentItem: item,
-      isPlaying:   false,           // will be set to true by the stream event
-      duration:    loadedDuration ?? Duration.zero,
-      playlist:    queue,
-      queueIndex:  index,
-    ));
-
-    await _player.play();
-  } catch (e) {
-    emit(AudioError('Failed to play: ${e.toString()}'));
   }
-}
 
   Future<void> _onPause(AudioPauseEvent _, Emitter<AudioState> emit) async {
-    await _player.pause();
+    await _handler.pause(); // goes through handler → updates notification
     if (state is AudioReady) {
       emit((state as AudioReady).copyWith(isPlaying: false));
     }
   }
 
   Future<void> _onResume(AudioResumeEvent _, Emitter<AudioState> emit) async {
-    await _player.play();
+    await _handler.play();
     if (state is AudioReady) {
       emit((state as AudioReady).copyWith(isPlaying: true));
     }
   }
 
   Future<void> _onSeek(AudioSeekEvent event, Emitter<AudioState> emit) async {
-    await _player.seek(event.position);
+    await _handler.seek(event.position);
     if (state is AudioReady) {
       emit((state as AudioReady).copyWith(position: event.position));
     }
   }
 
-  Future<void> _onSkipForward(AudioSkipForwardEvent _, Emitter<AudioState> emit) async {
+  Future<void> _onSkipForward(
+      AudioSkipForwardEvent _, Emitter<AudioState> emit) async {
     if (state is! AudioReady) return;
     final s       = state as AudioReady;
     final pos     = s.position + AppConstants.seekForward;
     final clamped = pos > s.duration ? s.duration : pos;
-    await _player.seek(clamped);
+    await _handler.seek(clamped);
     emit(s.copyWith(position: clamped));
   }
 
-  Future<void> _onSkipBackward(AudioSkipBackwardEvent _, Emitter<AudioState> emit) async {
+  Future<void> _onSkipBackward(
+      AudioSkipBackwardEvent _, Emitter<AudioState> emit) async {
     if (state is! AudioReady) return;
     final s       = state as AudioReady;
     final pos     = s.position - AppConstants.seekBackward;
     final clamped = pos.isNegative ? Duration.zero : pos;
-    await _player.seek(clamped);
+    await _handler.seek(clamped);
     emit(s.copyWith(position: clamped));
   }
 
@@ -160,7 +160,7 @@ Future<void> _onPlay(
     if (state is! AudioReady) return;
     final s = state as AudioReady;
     if (s.position.inSeconds > 3) {
-      await _player.seek(Duration.zero);
+      await _handler.seek(Duration.zero);
       emit(s.copyWith(position: Duration.zero));
       return;
     }
@@ -169,7 +169,8 @@ Future<void> _onPlay(
     add(AudioPlayEvent(s.playlist[s.queueIndex - 1], playlist: s.playlist));
   }
 
-  Future<void> _onVolume(AudioSetVolumeEvent event, Emitter<AudioState> emit) async {
+  Future<void> _onVolume(
+      AudioSetVolumeEvent event, Emitter<AudioState> emit) async {
     await _player.setVolume(event.volume.clamp(0.0, 1.0));
     if (state is AudioReady) {
       emit((state as AudioReady).copyWith(volume: event.volume));
@@ -179,7 +180,8 @@ Future<void> _onPlay(
   void _onRepeat(AudioToggleRepeatEvent _, Emitter<AudioState> emit) {
     if (state is! AudioReady) return;
     final s    = state as AudioReady;
-    final next = RepeatMode.values[(s.repeatMode.index + 1) % RepeatMode.values.length];
+    final next = RepeatMode
+        .values[(s.repeatMode.index + 1) % RepeatMode.values.length];
     _player.setLoopMode(_loopMode(next));
     emit(s.copyWith(repeatMode: next));
   }
@@ -189,19 +191,18 @@ Future<void> _onPlay(
     final s          = state as AudioReady;
     final newShuffle = !s.isShuffle;
     if (newShuffle) {
-      _shufflePlayed.clear();
-      _shufflePlayed.add(s.queueIndex);
+      _shufflePlayed
+        ..clear()
+        ..add(s.queueIndex);
     }
     emit(s.copyWith(isShuffle: newShuffle));
   }
 
   Future<void> _onStop(AudioStopEvent _, Emitter<AudioState> emit) async {
     _persistCurrentPosition();
-    await _player.stop();
+    await _handler.stop(); // dismisses the notification too
     emit(const AudioInitial());
   }
-
-  // ── Auto-advance: fires when the player reaches the natural end ──
 
   Future<void> _onTrackCompleted(
     AudioTrackCompletedEvent _,
@@ -211,8 +212,8 @@ Future<void> _onPlay(
     final s = state as AudioReady;
 
     if (s.repeatMode == RepeatMode.one) {
-      await _player.seek(Duration.zero);
-      await _player.play();
+      await _handler.seek(Duration.zero);
+      await _handler.play();
       return;
     }
 
@@ -230,26 +231,24 @@ Future<void> _onPlay(
   // ── Internal stream events ───────────────────────────────
 
   void _onPosition(AudioPositionUpdatedEvent event, Emitter<AudioState> emit) {
-  if (state is AudioReady) {
-    emit((state as AudioReady).copyWith(position: event.position));
+    if (state is AudioReady) {
+      emit((state as AudioReady).copyWith(position: event.position));
+    }
   }
-  // Silently ignore during AudioLoading — no needle to move yet.
-}
 
   void _onDuration(AudioDurationUpdatedEvent event, Emitter<AudioState> emit) {
-  if (event.duration == null) return;
-  if (state is AudioReady) {
-    emit((state as AudioReady).copyWith(duration: event.duration));
+    if (event.duration == null) return;
+    if (state is AudioReady) {
+      emit((state as AudioReady).copyWith(duration: event.duration));
+    }
   }
-  // If we're still in AudioLoading the duration will be set by _onPlay's
-  // loadedDuration return value — nothing to do here.
-}
 
-  void _onPlayingState(AudioPlayingStateChangedEvent event, Emitter<AudioState> emit) {
-  if (state is AudioReady) {
-    emit((state as AudioReady).copyWith(isPlaying: event.isPlaying));
+  void _onPlayingState(
+      AudioPlayingStateChangedEvent event, Emitter<AudioState> emit) {
+    if (state is AudioReady) {
+      emit((state as AudioReady).copyWith(isPlaying: event.isPlaying));
+    }
   }
-}
 
   // ── Shuffle / next-index logic ───────────────────────────
 
@@ -277,9 +276,8 @@ Future<void> _onPlay(
       return next;
     }
 
-    // Linear
     if (s.queueIndex < queue.length - 1) return s.queueIndex + 1;
-    if (s.repeatMode == RepeatMode.all)  return 0;
+    if (s.repeatMode == RepeatMode.all) return 0;
     return null;
   }
 
@@ -300,7 +298,7 @@ Future<void> _onPlay(
     switch (mode) {
       case RepeatMode.none: return LoopMode.off;
       case RepeatMode.one:  return LoopMode.one;
-      case RepeatMode.all:  return LoopMode.off; // repeat-all handled manually
+      case RepeatMode.all:  return LoopMode.off;
     }
   }
 

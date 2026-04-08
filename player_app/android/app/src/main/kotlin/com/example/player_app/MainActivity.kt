@@ -33,11 +33,12 @@ class MainActivity : FlutterActivity() {
     private fun queryAudioFiles(): List<Map<String, Any?>> {
         val audioList = mutableListOf<Map<String, Any?>>()
 
-        val collection: Uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
-        } else {
-            MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
-        }
+        val collection: Uri =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
+            } else {
+                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+            }
 
         val projection = arrayOf(
             MediaStore.Audio.Media._ID,
@@ -45,54 +46,48 @@ class MainActivity : FlutterActivity() {
             MediaStore.Audio.Media.TITLE,
             MediaStore.Audio.Media.ARTIST,
             MediaStore.Audio.Media.DURATION,
-            MediaStore.Audio.Media.DATA,         // absolute file path
+            MediaStore.Audio.Media.DATA,
         )
 
-        // Only include music (excludes ringtones, notifications, alarms)
         val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
-
         val sortOrder = "${MediaStore.Audio.Media.TITLE} ASC"
 
-        contentResolver.query(
-            collection,
-            projection,
-            selection,
-            null,
-            sortOrder
-        )?.use { cursor ->
-            val idCol       = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
-            val nameCol     = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
-            val titleCol    = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
-            val artistCol   = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
-            val durationCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
-            val dataCol     = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
+        contentResolver.query(collection, projection, selection, null, sortOrder)
+            ?.use { cursor ->
 
-            while (cursor.moveToNext()) {
-                val id       = cursor.getLong(idCol)
-                val name     = cursor.getString(nameCol) ?: ""
-                val title    = cursor.getString(titleCol)?.takeIf { it.isNotBlank() } ?: name
-                val artist   = cursor.getString(artistCol)?.takeIf {
-                    it.isNotBlank() && it != "<unknown>"
-                }
-                val duration = cursor.getLong(durationCol)
-                val path     = cursor.getString(dataCol) ?: continue  // skip if no path
+                val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
+                val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
+                val titleCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
+                val artistCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
+                val durationCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
+                val dataCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
 
-                // Build content URI as a stable reference (path can become stale on Android Q+)
-                val contentUri = ContentUris.withAppendedId(
-                    MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id
-                ).toString()
+                while (cursor.moveToNext()) {
+                    val id = cursor.getLong(idCol)
+                    val name = cursor.getString(nameCol) ?: ""
+                    val title = cursor.getString(titleCol)?.takeIf { it.isNotBlank() } ?: name
+                    val artist = cursor.getString(artistCol)?.takeIf {
+                        it.isNotBlank() && it != "<unknown>"
+                    }
+                    val duration = cursor.getLong(durationCol)
+                    val path = cursor.getString(dataCol) ?: continue
 
-                audioList.add(
-                    mapOf(
-                        "id"          to contentUri,
-                        "path"        to path,
-                        "title"       to title,
-                        "artist"      to artist,
-                        "duration"    to duration,
+                    val contentUri = ContentUris.withAppendedId(
+                        MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                        id
+                    ).toString()
+
+                    audioList.add(
+                        mapOf(
+                            "id" to contentUri,
+                            "path" to path,
+                            "title" to title,
+                            "artist" to artist,
+                            "duration" to duration,
+                        )
                     )
-                )
+                }
             }
-        }
 
         return audioList
     }
