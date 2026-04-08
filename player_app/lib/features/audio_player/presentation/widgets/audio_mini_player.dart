@@ -84,40 +84,52 @@ class AudioMiniPlayer extends StatelessWidget {
                 ),
 
                 // Prev
-                IconButton(
-                  iconSize: 22.r,
-                  icon: const Icon(Icons.skip_previous_rounded),
-                  onPressed: state.hasPrev
-                      ? () => bloc.add(const AudioPrevTrackEvent())
-                      : null,
-                ),
-
-                // Play / Pause
-                IconButton(
-                  iconSize: 28.r,
-                  icon: Icon(
-                    state.isPlaying
-                        ? Icons.pause_rounded
-                        : Icons.play_arrow_rounded,
-                    color: scheme.primary,
+                  IconButton(
+                    iconSize: 22.r,
+                    icon: const Icon(Icons.skip_previous_rounded),
+                    onPressed: state.hasPrev
+                        ? () => bloc.add(const AudioPrevTrackEvent())
+                        : null,
                   ),
-                  onPressed: () => bloc.add(
-                    state.isPlaying
-                        ? const AudioPauseEvent()
-                        : const AudioResumeEvent(),
+
+                  // Play / Pause
+                  IconButton(
+                    iconSize: 28.r,
+                    icon: Icon(
+                      state.isPlaying
+                          ? Icons.pause_rounded
+                          : Icons.play_arrow_rounded,
+                      color: scheme.primary,
+                    ),
+                    onPressed: () => bloc.add(
+                      state.isPlaying
+                          ? const AudioPauseEvent()
+                          : const AudioResumeEvent(),
+                    ),
                   ),
-                ),
 
-                // Next
-                IconButton(
-                  iconSize: 22.r,
-                  icon: const Icon(Icons.skip_next_rounded),
-                  onPressed: state.hasNext
-                      ? () => bloc.add(const AudioNextTrackEvent())
-                      : null,
-                ),
+                  // Next
+                  IconButton(
+                    iconSize: 22.r,
+                    icon: const Icon(Icons.skip_next_rounded),
+                    onPressed: state.hasNext
+                        ? () => bloc.add(const AudioNextTrackEvent())
+                        : null,
+                  ),
 
-                SizedBox(width: 4.w),
+                  // ── Close / dismiss ──────────────────────────────────
+                  IconButton(
+                    iconSize: 20.r,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                    icon: Icon(
+                      Icons.close_rounded,
+                      color: scheme.onSurface.withOpacity(.5),
+                    ),
+                    onPressed: () => bloc.add(const AudioStopEvent()),
+                  ),
+
+                  SizedBox(width: 4.w),
               ],
             ),
           ),
