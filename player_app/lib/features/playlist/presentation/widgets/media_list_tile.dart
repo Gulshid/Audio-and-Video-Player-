@@ -1,5 +1,8 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:media_player/core/service/thumnail_service.dart';
 
 import '../../domain/entities/media_item.dart';
 
@@ -117,43 +120,111 @@ class MediaListTile extends StatelessWidget {
   }
 }
 
-class _Thumbnail extends StatelessWidget {
+class _Thumbnail extends StatefulWidget {          // ← StatefulWidget now
   const _Thumbnail({required this.item, required this.isActive});
   final MediaItem item;
   final bool      isActive;
 
   @override
+  State<_Thumbnail> createState() => _ThumbnailState();
+}
+
+class _ThumbnailState extends State<_Thumbnail> {
+  Future<String?>? _thumbFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    // Only generate for video — audio already has albumArt from metadata
+    if (widget.item.type == MediaType.video && widget.item.albumArt == null) {
+      _thumbFuture = ThumbnailService.instance.getThumbnail(
+        widget.item.path,
+        isNetwork: widget.item.isNetwork,
+      );
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final scheme  = Theme.of(context).colorScheme;
-    final isAudio = item.type == MediaType.audio;
+    final isAudio = widget.item.type == MediaType.audio;
     final size    = 50.r;
 
+    // ── Audio or item already has albumArt — original logic unchanged ──
+    if (isAudio || widget.item.albumArt != null) {
+      return _shell(
+        context, size, scheme,
+        child: widget.item.albumArt == null
+            ? Icon(Icons.music_note_rounded,
+                size: 26.r,
+                color: widget.isActive
+                    ? scheme.primary
+                    : scheme.onSurface.withOpacity(.4))
+            : null,
+        image: widget.item.albumArt != null
+            ? (widget.item.albumArt!.startsWith('http')
+                ? NetworkImage(widget.item.albumArt!) as ImageProvider
+                : AssetImage(widget.item.albumArt!))
+            : null,
+      );
+    }
+
+    // ── Video — async thumbnail ────────────────────────────────────────
+    return FutureBuilder<String?>(
+      future: _thumbFuture,
+      builder: (context, snap) {
+        ImageProvider? image;
+        if (snap.connectionState == ConnectionState.done && snap.data != null) {
+          image = FileImage(File(snap.data!));
+        }
+
+        return _shell(
+          context, size, scheme,
+          image: image,
+          child: image == null
+              ? snap.connectionState != ConnectionState.done
+                  // Still loading — small spinner
+                  ? SizedBox(
+                      width:  18.r,
+                      height: 18.r,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 1.5,
+                        color: scheme.onSurface.withOpacity(.3),
+                      ),
+                    )
+                  // Failed / network stream — fallback icon
+                  : Icon(Icons.play_circle_outline_rounded,
+                      size:  26.r,
+                      color: widget.isActive
+                          ? scheme.primary
+                          : scheme.onSurface.withOpacity(.4))
+              : null,
+        );
+      },
+    );
+  }
+
+  /// Shared container so shape/color/radius stay consistent
+  Widget _shell(
+    BuildContext context,
+    double size,
+    ColorScheme scheme, {
+    Widget?        child,
+    ImageProvider? image,
+  }) {
     return Container(
       width:  size,
       height: size,
       decoration: BoxDecoration(
-        color:        isActive
+        color: widget.isActive
             ? scheme.primary.withOpacity(.15)
             : scheme.onSurface.withOpacity(.08),
         borderRadius: BorderRadius.circular(10.r),
-        image: item.albumArt != null
-            ? DecorationImage(
-                image: item.albumArt!.startsWith('http')
-                    ? NetworkImage(item.albumArt!) as ImageProvider
-                    : AssetImage(item.albumArt!),
-                fit: BoxFit.cover,
-              )
+        image: image != null
+            ? DecorationImage(image: image, fit: BoxFit.cover)
             : null,
       ),
-      child: item.albumArt == null
-          ? Icon(
-              isAudio
-                  ? Icons.music_note_rounded
-                  : Icons.play_circle_outline_rounded,
-              size:  26.r,
-              color: isActive ? scheme.primary : scheme.onSurface.withOpacity(.4),
-            )
-          : null,
+      child: child != null ? Center(child: child) : null,
     );
   }
 }
