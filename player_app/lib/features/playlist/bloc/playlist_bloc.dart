@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:path/path.dart' as p;
@@ -31,11 +32,8 @@ class PlaylistBloc extends Bloc<PlaylistEvent, PlaylistState> {
   List<MediaItem> _readAll() =>
       _box.values.map((e) => MediaItem.fromMap(e as Map)).toList();
 
-  /// Hive keys must be <= 255 chars. File paths can be longer, so we
-  /// use a short hex digest derived from the item id.
   String _hiveKey(String id) {
     final bytes = utf8.encode(id);
-    // Simple djb2-style 64-bit fold into a 16-char hex string — always <= 255.
     int h = 5381;
     for (final b in bytes) {
       h = ((h << 5) + h + b) & 0x7FFFFFFFFFFFFFFF;
@@ -142,6 +140,10 @@ class PlaylistBloc extends Bloc<PlaylistEvent, PlaylistState> {
 
   // ── Device scan ──────────────────────────────────────────
 
+  // MethodChannel to query audio via Android MediaStore directly.
+  // This bypasses photo_manager's audio limitation under LIMITED permission.
+  static const _channel = MethodChannel('com.example.player_app/media_store');
+
   Future<void> _onScanDevice(
     PlaylistScanDeviceEvent event,
     Emitter<PlaylistState> emit,
@@ -158,8 +160,6 @@ class PlaylistBloc extends Bloc<PlaylistEvent, PlaylistState> {
         final ps = await PhotoManager.requestPermissionExtend();
         debugPrint('🔑 permission: $ps | hasAccess=${ps.hasAccess} isAuth=${ps.isAuth}');
 
-        // hasAccess covers both FULL and LIMITED grants (Android 13 partial).
-        // isAuth is FULL only — do NOT use isAuth here.
         if (!ps.hasAccess) {
           debugPrint('🔑 Permanently denied — opening Settings');
           await PhotoManager.openSetting();
@@ -169,36 +169,49 @@ class PlaylistBloc extends Bloc<PlaylistEvent, PlaylistState> {
           return;
         }
 
-        // ── Audio ──────────────────────────────────────────
-        debugPrint('🎵 Querying audio…');
-        final audioAlbums = await PhotoManager.getAssetPathList(
-          type:   RequestType.audio,
-          hasAll: true,
-        );
-        debugPrint('🎵 ${audioAlbums.length} audio album(s)');
+        // ── Audio — query MediaStore directly via MethodChannel ────────────
+        // photo_manager's RequestType.audio returns 0 albums when permission
+        // is LIMITED (Android 13 partial grant) because the user only granted
+        // access to photos/videos, not audio. Audio needs READ_MEDIA_AUDIO
+        // which is a separate Android permission. We query MediaStore directly
+        // via a native MethodChannel call which works regardless of
+        // photo_manager's permission state, as long as READ_MEDIA_AUDIO (API 33+)
+        // or READ_EXTERNAL_STORAGE (API <33) is declared in AndroidManifest.xml.
+        debugPrint('🎵 Querying audio via MediaStore…');
 
-        for (final album in audioAlbums) {
-          final count = await album.assetCountAsync;
-          if (count == 0) continue;
-          final assets = await album.getAssetListRange(start: 0, end: count);
-          for (final asset in assets) {
-            final file = await asset.originFile;
-            final path = file?.path;
-            if (path == null || existingIds.contains(path)) continue;
+        try {
+          final List<dynamic> audioFiles =
+              await _channel.invokeMethod('getAudioFiles');
+
+          for (final raw in audioFiles) {
+            final map  = Map<String, dynamic>.from(raw as Map);
+            final path = map['path'] as String? ?? '';
+            if (path.isEmpty || existingIds.contains(path)) continue;
             existingIds.add(path);
+            final durationMs = map['duration'] as int? ?? 0;
             found.add(MediaItem(
               id:       path,
-              title:    asset.title ?? p.basenameWithoutExtension(path),
+              title:    map['title'] as String? ?? p.basenameWithoutExtension(path),
               path:     path,
               type:     MediaType.audio,
-              duration: asset.duration > 0
-                  ? Duration(seconds: asset.duration.toInt())
+              artist:   map['artist'] as String?,
+              duration: durationMs > 0
+                  ? Duration(milliseconds: durationMs)
                   : null,
             ));
           }
+          debugPrint('🎵 Found ${found.length} audio file(s) via MediaStore');
+        } on MissingPluginException {
+          // Native channel not wired yet — fall back to photo_manager audio.
+          // Remove this fallback once you add the Kotlin channel (see README).
+          debugPrint('⚠️ MediaStore channel missing — falling back to photo_manager audio');
+          await _scanAudioViaPhotoManager(found, existingIds);
+        } on PlatformException catch (e) {
+          debugPrint('⚠️ MediaStore channel error: $e — falling back to photo_manager audio');
+          await _scanAudioViaPhotoManager(found, existingIds);
         }
 
-        // ── Video ──────────────────────────────────────────
+        // ── Video — PhotoManager works fine for video ──────────────────────
         debugPrint('🎬 Querying video…');
         final videoAlbums = await PhotoManager.getAssetPathList(
           type:   RequestType.video,
@@ -260,6 +273,39 @@ class PlaylistBloc extends Bloc<PlaylistEvent, PlaylistState> {
     } catch (e, st) {
       debugPrint('❌ Scan error: $e\n$st');
       emit(PlaylistError(e.toString()));
+    }
+  }
+
+  /// Fallback: use photo_manager to get audio. Works on Android <13 or
+  /// when full (non-limited) permission is granted.
+  Future<void> _scanAudioViaPhotoManager(
+    List<MediaItem> found,
+    Set<String> existingIds,
+  ) async {
+    final audioAlbums = await PhotoManager.getAssetPathList(
+      type:   RequestType.audio,
+      hasAll: true,
+    );
+    debugPrint('🎵 photo_manager audio: ${audioAlbums.length} album(s)');
+    for (final album in audioAlbums) {
+      final count = await album.assetCountAsync;
+      if (count == 0) continue;
+      final assets = await album.getAssetListRange(start: 0, end: count);
+      for (final asset in assets) {
+        final file = await asset.originFile;
+        final path = file?.path;
+        if (path == null || existingIds.contains(path)) continue;
+        existingIds.add(path);
+        found.add(MediaItem(
+          id:       path,
+          title:    asset.title ?? p.basenameWithoutExtension(path),
+          path:     path,
+          type:     MediaType.audio,
+          duration: asset.duration > 0
+              ? Duration(seconds: asset.duration.toInt())
+              : null,
+        ));
+      }
     }
   }
 }
