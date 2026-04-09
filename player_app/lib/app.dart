@@ -66,27 +66,35 @@ class _MediaPlayerAppState extends State<MediaPlayerApp>
                   return MaterialApp.router(
                     title: 'Media Player',
                     debugShowCheckedModeBanner: false,
-                    theme: AppTheme.light,
-                    darkTheme: AppTheme.dark,
+                    theme:     AppTheme.midnightVioletLight,
+                    darkTheme: AppTheme.midnightVioletDark,
                     themeMode: themeMode,
                     routerConfig: _router,
                     builder: (ctx, child) {
                       // Sync status bar style with theme
+                      final isDark = Theme.of(ctx).brightness == Brightness.dark;
                       SystemChrome.setSystemUIOverlayStyle(
                         SystemUiOverlayStyle(
                           statusBarColor: Colors.transparent,
-                          systemNavigationBarColor: Colors.transparent,
-                          systemNavigationBarContrastEnforced: false,
-                          statusBarIconBrightness:
-                              themeMode == ThemeMode.dark
-                                  ? Brightness.light
-                                  : Brightness.dark,
-                          systemNavigationBarIconBrightness:
-                              themeMode == ThemeMode.dark
-                                  ? Brightness.light
-                                  : Brightness.dark,
+                          statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
+                          systemNavigationBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
                         ),
                       );
+                      // SystemChrome.setSystemUIOverlayStyle(
+                      //   SystemUiOverlayStyle(
+                      //     statusBarColor: Colors.transparent,
+                      //     systemNavigationBarColor: Colors.transparent,
+                      //     systemNavigationBarContrastEnforced: false,
+                      //     statusBarIconBrightness:
+                      //         themeMode == ThemeMode.dark
+                      //             ? Brightness.light
+                      //             : Brightness.dark,
+                      //     systemNavigationBarIconBrightness:
+                      //         themeMode == ThemeMode.dark
+                      //             ? Brightness.light
+                      //             : Brightness.dark,
+                      //   ),
+                      // );
                       return child!;
                     },
                   );
