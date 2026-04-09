@@ -47,7 +47,6 @@ class AudioBloc extends Bloc<AudioEvent, AudioState> {
 
   final Set<int> _shufflePlayed = {};
 
-  // FIX #2: Guard flag to prevent concurrent stop calls
   bool _isStopping = false;
 
   StreamSubscription<Duration>?    _posSub;
@@ -56,29 +55,20 @@ class AudioBloc extends Bloc<AudioEvent, AudioState> {
   StreamSubscription<PlayerState>? _stateSub;
 
   void _subscribeToPlayer() {
-    // FIX #1: Use distinct() + throttle to avoid flooding the bloc
-    // with position events before AudioReady state is set.
     _posSub = _player.positionStream.listen(
-      (pos) {
-        if (!isClosed) add(AudioPositionUpdatedEvent(pos));
-      },
-      onError: (_) {}, // swallow stream errors silently
-    );
-
-    _durSub = _player.durationStream.listen(
-      (dur) {
-        if (!isClosed) add(AudioDurationUpdatedEvent(dur));
-      },
+      (pos) { if (!isClosed) add(AudioPositionUpdatedEvent(pos)); },
       onError: (_) {},
     );
-
+    _durSub = _player.durationStream.listen(
+      (dur) { if (!isClosed) add(AudioDurationUpdatedEvent(dur)); },
+      onError: (_) {},
+    );
     _playSub = _player.playingStream.listen(
       (playing) {
         if (!isClosed) add(AudioPlayingStateChangedEvent(isPlaying: playing));
       },
       onError: (_) {},
     );
-
     _stateSub = _player.playerStateStream.listen(
       (ps) {
         if (ps.processingState == ProcessingState.completed) {
@@ -91,10 +81,7 @@ class AudioBloc extends Bloc<AudioEvent, AudioState> {
 
   // ── Event handlers ───────────────────────────────────────
 
-  Future<void> _onPlay(
-    AudioPlayEvent event,
-    Emitter<AudioState> emit,
-  ) async {
+  Future<void> _onPlay(AudioPlayEvent event, Emitter<AudioState> emit) async {
     emit(const AudioLoading());
     try {
       final item  = event.item;
@@ -105,11 +92,13 @@ class AudioBloc extends Bloc<AudioEvent, AudioState> {
 
       _persistCurrentPosition();
 
-      // FIX #1: Load duration first, THEN emit AudioReady so that
-      // position/duration stream events find the correct state type.
+      // Re-subscribe if subscriptions were cancelled by a prior stop.
+      if (_posSub == null) _subscribeToPlayer();
+
+      // AppAudioHandler.loadAndPlay() now guards the OS notification
+      // internally (_isLoadingTrack flag), so we don't need any flag here.
       final loadedDuration = await _handler.loadAndPlay(item);
 
-      // Seek to last saved position after loading
       if (item.lastPositionSeconds > 0) {
         await _player.seek(item.lastPosition);
       }
@@ -118,14 +107,10 @@ class AudioBloc extends Bloc<AudioEvent, AudioState> {
         ..clear()
         ..add(index);
 
-      // Emit AudioReady BEFORE stream events can be processed —
-      // the event queue serialises these so this emits first.
       emit(AudioReady(
         currentItem: item,
         isPlaying:   true,
-        // FIX #1: Seed with real duration so the slider isn't stuck at 0
         duration:    loadedDuration ?? Duration.zero,
-        // FIX #1: Seed with the last saved position immediately
         position:    item.lastPositionSeconds > 0
             ? item.lastPosition
             : Duration.zero,
@@ -229,33 +214,26 @@ class AudioBloc extends Bloc<AudioEvent, AudioState> {
     emit(s.copyWith(isShuffle: newShuffle));
   }
 
-  // FIX #2: Guard against concurrent/re-entrant stop calls that cause
-  // the rxdart "Bad state: You cannot add items while items are being
-  // added from addStream" error in BaseAudioHandler.stop().
   Future<void> _onStop(AudioStopEvent _, Emitter<AudioState> emit) async {
-    if (_isStopping) return; // prevent re-entrant calls
+    if (_isStopping) return;
     _isStopping = true;
     try {
       _persistCurrentPosition();
 
-      // Cancel stream subs BEFORE calling stop so no more events
-      // are dispatched into the bloc while the handler is tearing down.
+      // Cancel subs BEFORE stop() so no events fire while tearing down.
       await _posSub?.cancel();
       await _durSub?.cancel();
       await _playSub?.cancel();
       await _stateSub?.cancel();
-      _posSub  = null;
-      _durSub  = null;
-      _playSub = null;
+      _posSub   = null;
+      _durSub   = null;
+      _playSub  = null;
       _stateSub = null;
 
-      // Now it's safe to stop — no concurrent stream writes
       await _handler.stop();
-
       emit(const AudioInitial());
     } catch (e) {
       debugPrint('AudioBloc stop error: $e');
-      // Still reset the state even if stop threw
       emit(const AudioInitial());
     } finally {
       _isStopping = false;
@@ -286,18 +264,16 @@ class AudioBloc extends Bloc<AudioEvent, AudioState> {
     add(AudioPlayEvent(s.playlist[nextIndex], playlist: s.playlist));
   }
 
-  // ── Internal stream events ───────────────────────────────
+  // ── Internal stream event handlers ───────────────────────
 
   void _onPosition(AudioPositionUpdatedEvent event, Emitter<AudioState> emit) {
-    if (state is AudioReady) {
-      final s = state as AudioReady;
-      // FIX #1: Clamp position to duration to avoid overflow on the slider
-      final clamped = s.duration.inMilliseconds > 0 &&
-              event.position > s.duration
-          ? s.duration
-          : event.position;
-      emit(s.copyWith(position: clamped));
-    }
+    if (state is! AudioReady) return;
+    final s       = state as AudioReady;
+    final clamped = s.duration.inMilliseconds > 0 &&
+            event.position > s.duration
+        ? s.duration
+        : event.position;
+    emit(s.copyWith(position: clamped));
   }
 
   void _onDuration(AudioDurationUpdatedEvent event, Emitter<AudioState> emit) {
@@ -307,11 +283,19 @@ class AudioBloc extends Bloc<AudioEvent, AudioState> {
     }
   }
 
+  // KEY FIX: Use _player.playing (actual player state) as ground truth
+  // instead of event.isPlaying.
+  //
+  // Why: Events queued in the bloc during loadAndPlay() (e.g. playing=false
+  // from setFilePath) are processed AFTER _onPlay() finishes — at which
+  // point any _isLoadingTrack flag in this bloc is already cleared.
+  // By reading _player.playing directly we always reflect the real state,
+  // regardless of when the event was originally generated.
   void _onPlayingState(
       AudioPlayingStateChangedEvent event, Emitter<AudioState> emit) {
-    if (state is AudioReady) {
-      emit((state as AudioReady).copyWith(isPlaying: event.isPlaying));
-    }
+    if (state is! AudioReady) return;
+    // Use actual player state, not the (possibly stale) event value.
+    emit((state as AudioReady).copyWith(isPlaying: _player.playing));
   }
 
   // ── Shuffle / next-index logic ───────────────────────────
