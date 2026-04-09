@@ -16,10 +16,10 @@ Future<void> initDependencies() async {
     config: const AudioServiceConfig(
       androidNotificationChannelId:   'com.example.player_app',
       androidNotificationChannelName: 'Media Playback',
-      androidNotificationIcon:        'drawable/ic_notification',
       androidNotificationOngoing:     true,
       androidStopForegroundOnPause:   true,
       notificationColor:              Color(0xFF164957),
+      androidNotificationIcon: 'drawable/audio',  // uses your existing audio.png
     ),
   );
   sl.registerSingleton<AppAudioHandler>(audioHandler);
