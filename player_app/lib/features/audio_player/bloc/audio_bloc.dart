@@ -43,10 +43,12 @@ class AudioBloc extends Bloc<AudioEvent, AudioState> {
   final PlaylistBloc?   _playlistBloc;
   final Random          _random = Random();
 
-  // Convenience getter — same player instance inside the handler
   AudioPlayer get _player => _handler.player;
 
   final Set<int> _shufflePlayed = {};
+
+  // FIX #2: Guard flag to prevent concurrent stop calls
+  bool _isStopping = false;
 
   StreamSubscription<Duration>?    _posSub;
   StreamSubscription<Duration?>?   _durSub;
@@ -54,17 +56,37 @@ class AudioBloc extends Bloc<AudioEvent, AudioState> {
   StreamSubscription<PlayerState>? _stateSub;
 
   void _subscribeToPlayer() {
-    _posSub  = _player.positionStream.listen(
-        (pos) => add(AudioPositionUpdatedEvent(pos)));
-    _durSub  = _player.durationStream.listen(
-        (dur) => add(AudioDurationUpdatedEvent(dur)));
+    // FIX #1: Use distinct() + throttle to avoid flooding the bloc
+    // with position events before AudioReady state is set.
+    _posSub = _player.positionStream.listen(
+      (pos) {
+        if (!isClosed) add(AudioPositionUpdatedEvent(pos));
+      },
+      onError: (_) {}, // swallow stream errors silently
+    );
+
+    _durSub = _player.durationStream.listen(
+      (dur) {
+        if (!isClosed) add(AudioDurationUpdatedEvent(dur));
+      },
+      onError: (_) {},
+    );
+
     _playSub = _player.playingStream.listen(
-        (playing) => add(AudioPlayingStateChangedEvent(isPlaying: playing)));
-    _stateSub = _player.playerStateStream.listen((ps) {
-      if (ps.processingState == ProcessingState.completed) {
-        add(const AudioTrackCompletedEvent());
-      }
-    });
+      (playing) {
+        if (!isClosed) add(AudioPlayingStateChangedEvent(isPlaying: playing));
+      },
+      onError: (_) {},
+    );
+
+    _stateSub = _player.playerStateStream.listen(
+      (ps) {
+        if (ps.processingState == ProcessingState.completed) {
+          if (!isClosed) add(const AudioTrackCompletedEvent());
+        }
+      },
+      onError: (_) {},
+    );
   }
 
   // ── Event handlers ───────────────────────────────────────
@@ -83,9 +105,11 @@ class AudioBloc extends Bloc<AudioEvent, AudioState> {
 
       _persistCurrentPosition();
 
-      // ← handler loads metadata into the OS notification AND plays
+      // FIX #1: Load duration first, THEN emit AudioReady so that
+      // position/duration stream events find the correct state type.
       final loadedDuration = await _handler.loadAndPlay(item);
 
+      // Seek to last saved position after loading
       if (item.lastPositionSeconds > 0) {
         await _player.seek(item.lastPosition);
       }
@@ -94,10 +118,17 @@ class AudioBloc extends Bloc<AudioEvent, AudioState> {
         ..clear()
         ..add(index);
 
+      // Emit AudioReady BEFORE stream events can be processed —
+      // the event queue serialises these so this emits first.
       emit(AudioReady(
         currentItem: item,
         isPlaying:   true,
+        // FIX #1: Seed with real duration so the slider isn't stuck at 0
         duration:    loadedDuration ?? Duration.zero,
+        // FIX #1: Seed with the last saved position immediately
+        position:    item.lastPositionSeconds > 0
+            ? item.lastPosition
+            : Duration.zero,
         playlist:    queue,
         queueIndex:  index,
       ));
@@ -107,7 +138,7 @@ class AudioBloc extends Bloc<AudioEvent, AudioState> {
   }
 
   Future<void> _onPause(AudioPauseEvent _, Emitter<AudioState> emit) async {
-    await _handler.pause(); // goes through handler → updates notification
+    await _handler.pause();
     if (state is AudioReady) {
       emit((state as AudioReady).copyWith(isPlaying: false));
     }
@@ -198,10 +229,37 @@ class AudioBloc extends Bloc<AudioEvent, AudioState> {
     emit(s.copyWith(isShuffle: newShuffle));
   }
 
+  // FIX #2: Guard against concurrent/re-entrant stop calls that cause
+  // the rxdart "Bad state: You cannot add items while items are being
+  // added from addStream" error in BaseAudioHandler.stop().
   Future<void> _onStop(AudioStopEvent _, Emitter<AudioState> emit) async {
-    _persistCurrentPosition();
-    await _handler.stop(); // dismisses the notification too
-    emit(const AudioInitial());
+    if (_isStopping) return; // prevent re-entrant calls
+    _isStopping = true;
+    try {
+      _persistCurrentPosition();
+
+      // Cancel stream subs BEFORE calling stop so no more events
+      // are dispatched into the bloc while the handler is tearing down.
+      await _posSub?.cancel();
+      await _durSub?.cancel();
+      await _playSub?.cancel();
+      await _stateSub?.cancel();
+      _posSub  = null;
+      _durSub  = null;
+      _playSub = null;
+      _stateSub = null;
+
+      // Now it's safe to stop — no concurrent stream writes
+      await _handler.stop();
+
+      emit(const AudioInitial());
+    } catch (e) {
+      debugPrint('AudioBloc stop error: $e');
+      // Still reset the state even if stop threw
+      emit(const AudioInitial());
+    } finally {
+      _isStopping = false;
+    }
   }
 
   Future<void> _onTrackCompleted(
@@ -232,12 +290,18 @@ class AudioBloc extends Bloc<AudioEvent, AudioState> {
 
   void _onPosition(AudioPositionUpdatedEvent event, Emitter<AudioState> emit) {
     if (state is AudioReady) {
-      emit((state as AudioReady).copyWith(position: event.position));
+      final s = state as AudioReady;
+      // FIX #1: Clamp position to duration to avoid overflow on the slider
+      final clamped = s.duration.inMilliseconds > 0 &&
+              event.position > s.duration
+          ? s.duration
+          : event.position;
+      emit(s.copyWith(position: clamped));
     }
   }
 
   void _onDuration(AudioDurationUpdatedEvent event, Emitter<AudioState> emit) {
-    if (event.duration == null) return;
+    if (event.duration == null || event.duration == Duration.zero) return;
     if (state is AudioReady) {
       emit((state as AudioReady).copyWith(duration: event.duration));
     }

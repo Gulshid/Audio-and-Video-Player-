@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart' hide DeviceType;
@@ -184,7 +186,7 @@ class _AlbumArt extends StatelessWidget {
             ? DecorationImage(
                 image: albumArt!.startsWith('http')
                     ? NetworkImage(albumArt!) as ImageProvider
-                    : AssetImage(albumArt!),
+                    : FileImage(File(albumArt!)),
                 fit: BoxFit.cover,
               )
             : null,
