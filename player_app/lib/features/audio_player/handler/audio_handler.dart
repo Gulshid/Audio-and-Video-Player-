@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui';
 import 'package:audio_service/audio_service.dart';
 import 'package:just_audio/just_audio.dart';
 
@@ -6,6 +7,11 @@ import '../../playlist/domain/entities/media_item.dart' as app;
 
 class AppAudioHandler extends BaseAudioHandler with SeekHandler {
   final AudioPlayer player = AudioPlayer();
+
+  /// Injected by AudioBloc after construction so lock-screen / headphone
+  /// next/prev buttons delegate back to the bloc's queue logic.
+  VoidCallback? onSkipToNext;
+  VoidCallback? onSkipToPrevious;
 
   StreamSubscription? _playbackEventSub;
   StreamSubscription? _durationSub;
@@ -62,7 +68,13 @@ class AppAudioHandler extends BaseAudioHandler with SeekHandler {
       if (item.isNetwork) {
         duration = await player.setUrl(item.path);
       } else {
-        duration = await player.setFilePath(item.path);
+        // Prefer setUrl for content:// URIs (Android 13+ MediaStore paths).
+        // setFilePath only works for file:// paths.
+        if (item.path.startsWith('content://')) {
+          duration = await player.setUrl(item.path);
+        } else {
+          duration = await player.setFilePath(item.path);
+        }
       }
 
       // Clear flag BEFORE play() so playing=true event reaches OS correctly.
@@ -78,6 +90,10 @@ class AppAudioHandler extends BaseAudioHandler with SeekHandler {
       return duration;
     } catch (e) {
       _isLoadingTrack = false;
+      // Emit an error processing state so the UI / OS notification can react.
+      playbackState.add(playbackState.value.copyWith(
+        processingState: AudioProcessingState.error,
+      ));
       rethrow;
     }
   }
@@ -104,10 +120,14 @@ class AppAudioHandler extends BaseAudioHandler with SeekHandler {
   Future<void> seek(Duration pos) => player.seek(pos);
 
   @override
-  Future<void> skipToNext() async {}
+  Future<void> skipToNext() async {
+    onSkipToNext?.call();
+  }
 
   @override
-  Future<void> skipToPrevious() async {}
+  Future<void> skipToPrevious() async {
+    onSkipToPrevious?.call();
+  }
 
   @override
   Future<void> onTaskRemoved() async {

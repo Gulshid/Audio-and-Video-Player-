@@ -36,6 +36,10 @@ class AudioBloc extends Bloc<AudioEvent, AudioState> {
     on<AudioPlayingStateChangedEvent>(_onPlayingState);
     on<AudioTrackCompletedEvent>     (_onTrackCompleted);
 
+    // Wire lock-screen / headphone next/prev buttons to this bloc's queue logic.
+    _handler.onSkipToNext     = () { if (!isClosed) add(const AudioNextTrackEvent()); };
+    _handler.onSkipToPrevious = () { if (!isClosed) add(const AudioPrevTrackEvent()); };
+
     _subscribeToPlayer();
   }
 
@@ -118,7 +122,17 @@ class AudioBloc extends Bloc<AudioEvent, AudioState> {
         queueIndex:  index,
       ));
     } catch (e) {
-      emit(AudioError('Failed to play: ${e.toString()}'));
+      final msg = e.toString().toLowerCase();
+      if (msg.contains('no such file') ||
+          msg.contains('not found') ||
+          msg.contains('permission') ||
+          msg.contains('failed to load')) {
+        emit(AudioError(
+          'Cannot play "${event.item.title}" — file not found or access denied.',
+        ));
+      } else {
+        emit(AudioError('Failed to play: ${e.toString()}'));
+      }
     }
   }
 
@@ -353,6 +367,8 @@ class AudioBloc extends Bloc<AudioEvent, AudioState> {
   @override
   Future<void> close() async {
     _persistCurrentPosition();
+    _handler.onSkipToNext     = null;
+    _handler.onSkipToPrevious = null;
     await _posSub?.cancel();
     await _durSub?.cancel();
     await _playSub?.cancel();

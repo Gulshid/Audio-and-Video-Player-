@@ -40,13 +40,15 @@ class MainActivity : AudioServiceActivity() {  // ← extend this instead
                 MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
             }
 
+        // NOTE: DATA is deprecated on API 29+ and returns null on API 33+.
+        // We build the content:// URI from _ID instead and pass that as the
+        // path so just_audio can open it via a ContentResolver stream.
         val projection = arrayOf(
             MediaStore.Audio.Media._ID,
             MediaStore.Audio.Media.DISPLAY_NAME,
             MediaStore.Audio.Media.TITLE,
             MediaStore.Audio.Media.ARTIST,
             MediaStore.Audio.Media.DURATION,
-            MediaStore.Audio.Media.DATA,
         )
 
         val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
@@ -55,23 +57,22 @@ class MainActivity : AudioServiceActivity() {  // ← extend this instead
         contentResolver.query(collection, projection, selection, null, sortOrder)
             ?.use { cursor ->
 
-                val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
-                val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
-                val titleCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
-                val artistCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
+                val idCol       = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
+                val nameCol     = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
+                val titleCol    = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
+                val artistCol   = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
                 val durationCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
-                val dataCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
 
                 while (cursor.moveToNext()) {
-                    val id = cursor.getLong(idCol)
-                    val name = cursor.getString(nameCol) ?: ""
-                    val title = cursor.getString(titleCol)?.takeIf { it.isNotBlank() } ?: name
-                    val artist = cursor.getString(artistCol)?.takeIf {
+                    val id       = cursor.getLong(idCol)
+                    val name     = cursor.getString(nameCol) ?: ""
+                    val title    = cursor.getString(titleCol)?.takeIf { it.isNotBlank() } ?: name
+                    val artist   = cursor.getString(artistCol)?.takeIf {
                         it.isNotBlank() && it != "<unknown>"
                     }
                     val duration = cursor.getLong(durationCol)
-                    val path = cursor.getString(dataCol) ?: continue
 
+                    // Use content URI — works on all API levels including 33+.
                     val contentUri = ContentUris.withAppendedId(
                         MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
                         id
@@ -79,10 +80,10 @@ class MainActivity : AudioServiceActivity() {  // ← extend this instead
 
                     audioList.add(
                         mapOf(
-                            "id" to contentUri,
-                            "path" to path,
-                            "title" to title,
-                            "artist" to artist,
+                            "id"       to contentUri,
+                            "path"     to contentUri, // content:// URI, not file path
+                            "title"    to title,
+                            "artist"   to artist,
                             "duration" to duration,
                         )
                     )

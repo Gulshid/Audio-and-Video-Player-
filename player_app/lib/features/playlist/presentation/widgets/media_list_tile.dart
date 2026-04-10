@@ -164,7 +164,7 @@ class _ThumbnailState extends State<_Thumbnail> {
         image: widget.item.albumArt != null
             ? (widget.item.albumArt!.startsWith('http')
                 ? NetworkImage(widget.item.albumArt!) as ImageProvider
-                : AssetImage(widget.item.albumArt!))
+                : FileImage(File(widget.item.albumArt!)))
             : null,
       );
     }
