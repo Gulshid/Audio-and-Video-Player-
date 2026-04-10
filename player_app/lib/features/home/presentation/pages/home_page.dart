@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart' hide DeviceType;
+import 'package:media_player/features/home/presentation/pages/navbar.dart';
 
 import '../../../../core/widgets/responsive_builder.dart';
 import '../../../audio_player/presentation/widgets/audio_mini_player.dart';
@@ -80,28 +81,31 @@ class _HomePageState extends State<HomePage> {
 
   // ── Phone : bottom nav bar ────────────────────────────────
 
-  Widget _PhoneShell({required int index, required Function onNav}) {
-    return Scaffold(
-      body: Stack(
-        children: [
-          Positioned.fill(child: _body),
-          const Positioned(
-            left:   0,
-            right:  0,
-            bottom: kBottomNavigationBarHeight + 8,
-            child:  AudioMiniPlayer(),
-          ),
-        ],
-      ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: index,
-        onDestinationSelected: (i) => _onNav(i),
-        destinations: _destinations,
-        height: kBottomNavigationBarHeight.h,
-        labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-      ),
-    );
-  }
+ // ── Phone : bottom nav bar ────────────────────────────────
+
+Widget _PhoneShell({required int index, required Function onNav}) {
+  return Scaffold(
+    extendBody: true, // lets content flow under translucent nav bar
+    body: Stack(
+      children: [
+        Positioned.fill(child: _body),
+        Positioned(
+          left:   0,
+          right:  0,
+          bottom: kBottomNavigationBarHeight + 8,
+          child:  const AudioMiniPlayer(),
+        ),
+      ],
+    ),
+    bottomNavigationBar: AdvancedNavBar(
+      selectedIndex: index,
+      onDestinationSelected: (i) => _onNav(i),
+    ),
+  );
+}
+
+
+
 
   // ── Tablet : side nav rail ────────────────────────────────
 
