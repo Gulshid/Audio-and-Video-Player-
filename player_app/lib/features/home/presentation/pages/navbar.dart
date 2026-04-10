@@ -11,7 +11,7 @@ class AdvancedNavBar extends StatelessWidget {
 
   static const _items = [
     _NavItem(icon: Icons.home_outlined,          activeIcon: Icons.home_rounded,             label: 'Home'),
-    _NavItem(icon: Icons.library_music_outlined, activeIcon: Icons.library_music_rounded,    label: 'Library', badge: true),
+    _NavItem(icon: Icons.library_music_outlined, activeIcon: Icons.library_music_rounded,    label: 'Library'),
     _NavItem(icon: Icons.favorite_border_rounded,activeIcon: Icons.favorite_rounded,          label: 'Favorites'),
     _NavItem(icon: Icons.settings_outlined,      activeIcon: Icons.settings_rounded,          label: 'Settings'),
   ];
@@ -146,6 +146,7 @@ class _NavItem {
     required this.icon,
     required this.activeIcon,
     required this.label,
+    // ignore: unused_element_parameter
     this.badge = false,
   });
 

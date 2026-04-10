@@ -373,7 +373,9 @@ class AudioBloc extends Bloc<AudioEvent, AudioState> {
     await _durSub?.cancel();
     await _playSub?.cancel();
     await _stateSub?.cancel();
-    await _player.dispose();
+    // Dispose via the handler so it can also clean up its own subscriptions.
+    // Do NOT call _player.dispose() directly — the handler owns the player.
+    await _handler.dispose();
     return super.close();
   }
 }

@@ -28,7 +28,10 @@ class ThumbnailService {
       // Queue if too many are running simultaneously
       if (_active >= _maxConcurrent) {
         final completer = Completer<void>();
-        _queue.add(() async => completer.complete());
+        _queue.add(() {
+          completer.complete();
+          return completer.future;
+        });  // complete() is called when a slot frees
         await completer.future;
       }
 

@@ -50,7 +50,7 @@ class _PlaylistPageState extends State<PlaylistPage>
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: _searching ? _SearchField() : const Text('Library'),
+        title: _searching ? _buildSearchField() : const Text('Library'),
         bottom: PreferredSize(
   preferredSize: Size.fromHeight(56.h),
   child: Padding(
@@ -264,7 +264,7 @@ class _PlaylistPageState extends State<PlaylistPage>
 
   // ── Search field ─────────────────────────────────────────
 
-  Widget _SearchField() {
+  Widget _buildSearchField() {
     return TextField(
       controller:  _searchCtrl,
       autofocus:   true,
