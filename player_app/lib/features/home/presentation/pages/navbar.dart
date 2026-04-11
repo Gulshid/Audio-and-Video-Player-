@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 class AdvancedNavBar extends StatelessWidget {
   const AdvancedNavBar({
@@ -34,7 +35,7 @@ class AdvancedNavBar extends StatelessWidget {
       child: SafeArea(
         top: false,
         child: SizedBox(
-          height: kBottomNavigationBarHeight,
+          height: 60.h,
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: List.generate(_items.length, (i) {
@@ -77,7 +78,7 @@ class _NavButton extends StatelessWidget {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         curve: Curves.easeInOut,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        padding: EdgeInsets.symmetric(horizontal: 14.w, vertical: 5.h),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -85,20 +86,20 @@ class _NavButton extends StatelessWidget {
             AnimatedContainer(
               duration: const Duration(milliseconds: 200),
               curve: Curves.easeInOut,
-              width:  40,
-              height: 28,
+              width:  52.w,
+              height: 28.h,
               decoration: BoxDecoration(
                 color: selected
                     ? activeColor.withOpacity(0.15)
                     : Colors.transparent,
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: BorderRadius.circular(14.r),
               ),
               child: Stack(
                 alignment: Alignment.center,
                 children: [
                   Icon(
                     selected ? item.activeIcon : item.icon,
-                    size:  20,
+                    size:  24.r,
                     color: selected ? activeColor : scheme.onSurfaceVariant,
                   ),
                   if (item.badge)
@@ -106,8 +107,8 @@ class _NavButton extends StatelessWidget {
                       top:   3,
                       right: 4,
                       child: Container(
-                        width:  7,
-                        height: 7,
+                        width:  7.r,
+                        height: 7.r,
                         decoration: BoxDecoration(
                           color:        scheme.error,
                           shape:        BoxShape.circle,
@@ -121,12 +122,12 @@ class _NavButton extends StatelessWidget {
                 ],
               ),
             ),
-            const SizedBox(height: 3),
+            SizedBox(height: 2.h),
             // ── Label ─────────────────────────────────────
             AnimatedDefaultTextStyle(
               duration: const Duration(milliseconds: 200),
               style: TextStyle(
-                fontSize:   10,
+                fontSize:   10.sp,
                 fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
                 color:      selected ? activeColor : scheme.onSurfaceVariant,
               ),

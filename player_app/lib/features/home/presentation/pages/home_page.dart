@@ -87,12 +87,12 @@ class _HomePageState extends State<HomePage> {
       body: Stack(
         children: [
           Positioned.fill(child: _body),
-          Positioned(
-            left:   0,
-            right:  0,
-            bottom: kBottomNavigationBarHeight + 8,
-            child:  const AudioMiniPlayer(),
-          ),
+          // Positioned(
+          //   left:   0,
+          //   right:  0,
+          //   bottom: kBottomNavigationBarHeight + 8,
+          //   // child:  const AudioMiniPlayer(),
+          // ),
         ],
       ),
       bottomNavigationBar: AdvancedNavBar(

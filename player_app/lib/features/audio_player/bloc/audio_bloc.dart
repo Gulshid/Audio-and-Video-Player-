@@ -228,32 +228,34 @@ class AudioBloc extends Bloc<AudioEvent, AudioState> {
     emit(s.copyWith(isShuffle: newShuffle));
   }
 
-  Future<void> _onStop(AudioStopEvent _, Emitter<AudioState> emit) async {
-    if (_isStopping) return;
-    _isStopping = true;
-    try {
-      _persistCurrentPosition();
 
-      // Cancel subs BEFORE stop() so no events fire while tearing down.
-      await _posSub?.cancel();
-      await _durSub?.cancel();
-      await _playSub?.cancel();
-      await _stateSub?.cancel();
-      _posSub   = null;
-      _durSub   = null;
-      _playSub  = null;
-      _stateSub = null;
 
-      await _handler.stop();
-      emit(const AudioInitial());
-    } catch (e) {
-      debugPrint('AudioBloc stop error: $e');
-      emit(const AudioInitial());
-    } finally {
-      _isStopping = false;
-    }
+
+Future<void> _onStop(AudioStopEvent _, Emitter<AudioState> emit) async {
+  if (_isStopping) return;
+  _isStopping = true;
+  try {
+    _persistCurrentPosition();
+    emit(const AudioInitial());
+
+
+    await _posSub?.cancel();
+    await _durSub?.cancel();
+    await _playSub?.cancel();
+    await _stateSub?.cancel();
+    _posSub   = null;
+    _durSub   = null;
+    _playSub  = null;
+    _stateSub = null;
+
+    await _handler.stop();
+  } catch (e) {
+    debugPrint('AudioBloc stop error: $e');
+    emit(const AudioInitial());
+  } finally {
+    _isStopping = false;
   }
-
+}
   Future<void> _onTrackCompleted(
     AudioTrackCompletedEvent _,
     Emitter<AudioState> emit,

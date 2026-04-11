@@ -9,6 +9,7 @@ import '../../../../core/constants/app_constants.dart';
 import '../../../../core/widgets/responsive_builder.dart';
 import '../../../audio_player/bloc/audio_bloc.dart';
 import '../../../audio_player/bloc/audio_event.dart';
+import '../../../audio_player/presentation/widgets/audio_mini_player.dart';
 import '../../bloc/playlist_bloc.dart';
 import '../../bloc/playlist_event.dart';
 import '../../bloc/playlist_state.dart';
@@ -51,6 +52,7 @@ class _PlaylistPageState extends State<PlaylistPage>
     return Scaffold(
       appBar: AppBar(
         title: _searching ? _buildSearchField() : const Text('Library'),
+        
         bottom: PreferredSize(
   preferredSize: Size.fromHeight(56.h),
   child: Padding(
@@ -340,7 +342,14 @@ class _MediaList extends StatelessWidget {
     // Replace your ReorderableListView.builder in _MediaList
 
         return ReorderableListView.builder(
-          padding:                  EdgeInsets.symmetric(horizontal: 12.w, vertical: 8.h),
+          // Bottom padding: mini player height + nav bar height + safe gap,
+          // so the last item is never hidden behind the floating mini player.
+          padding: EdgeInsets.only(
+            left:   12.w,
+            right:  12.w,
+            top:    8.h,
+            bottom: AppConstants.miniPlayerHeight.h + 80.h + 10.h,
+          ),
           itemCount:                items.length,
           buildDefaultDragHandles:  false,   // ← kills the long-press conflict
           onReorder: (o, n) => context

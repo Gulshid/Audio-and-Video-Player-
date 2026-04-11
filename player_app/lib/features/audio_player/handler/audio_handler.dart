@@ -64,7 +64,7 @@ class AppAudioHandler extends BaseAudioHandler with SeekHandler {
         artUri: _artUri(item.albumArt),
       ));
 
-      final Duration? duration;
+      Duration? duration;
       if (item.isNetwork) {
         duration = await player.setUrl(item.path);
       } else {
@@ -74,6 +74,22 @@ class AppAudioHandler extends BaseAudioHandler with SeekHandler {
           duration = await player.setUrl(item.path);
         } else {
           duration = await player.setFilePath(item.path);
+        }
+      }
+
+      // content:// URIs often return null duration synchronously — just_audio
+      // has to open a ContentResolver stream to read the container headers,
+      // which finishes asynchronously. Wait up to 3 s for the real value so
+      // AudioBloc can seed AudioReady with a valid duration on the FIRST play
+      // (not just after the second play, once the data is cached).
+      if (duration == null || duration == Duration.zero) {
+        try {
+          duration = await player.durationStream
+              .where((d) => d != null && d != Duration.zero)
+              .first
+              .timeout(const Duration(seconds: 3));
+        } catch (_) {
+          // Timeout or error — proceed with null; _onDuration will patch later.
         }
       }
 

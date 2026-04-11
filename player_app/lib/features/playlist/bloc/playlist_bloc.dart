@@ -195,6 +195,7 @@ class PlaylistBloc extends Bloc<PlaylistEvent, PlaylistState> {
               path:     path,
               type:     MediaType.audio,
               artist:   map['artist'] as String?,
+              albumArt: map['albumArt'] as String?,   // ← cache file path from native
               duration: durationMs > 0
                   ? Duration(milliseconds: durationMs)
                   : null,
