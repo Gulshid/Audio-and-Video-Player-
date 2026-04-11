@@ -1,6 +1,6 @@
 import 'package:audio_service/audio_service.dart';
 import 'package:get_it/get_it.dart';
-import 'package:flutter/material.dart'; // ← add this
+import 'package:flutter/material.dart';
 import '../core/theme/theme_cubit.dart';
 import '../features/audio_player/bloc/audio_bloc.dart';
 import '../features/audio_player/handler/audio_handler.dart';
@@ -16,10 +16,14 @@ Future<void> initDependencies() async {
     config: const AudioServiceConfig(
       androidNotificationChannelId:   'com.example.player_app',
       androidNotificationChannelName: 'Media Playback',
-      androidNotificationOngoing:     true,
+      // FIX: set ongoing=false so Android does NOT hold a foreground
+      // service lock during loading. This removes the constraint that
+      // forces androidStopForegroundOnPause=true, which was causing
+      // Android to send PAUSE back to the app mid-load on first play.
+      androidNotificationOngoing:     false,
       androidStopForegroundOnPause:   true,
-      notificationColor:              Color(0xFF7C6FF7), // MidnightViolet.primary
-      androidNotificationIcon: 'drawable/audio',  // uses your existing audio.png
+      notificationColor:              Color(0xFF7C6FF7),
+      androidNotificationIcon:        'drawable/audio',
     ),
   );
   sl.registerSingleton<AppAudioHandler>(audioHandler);

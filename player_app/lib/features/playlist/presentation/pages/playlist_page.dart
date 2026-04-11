@@ -9,7 +9,6 @@ import '../../../../core/constants/app_constants.dart';
 import '../../../../core/widgets/responsive_builder.dart';
 import '../../../audio_player/bloc/audio_bloc.dart';
 import '../../../audio_player/bloc/audio_event.dart';
-import '../../../audio_player/presentation/widgets/audio_mini_player.dart';
 import '../../bloc/playlist_bloc.dart';
 import '../../bloc/playlist_event.dart';
 import '../../bloc/playlist_state.dart';

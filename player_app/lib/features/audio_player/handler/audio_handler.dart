@@ -8,8 +8,6 @@ import '../../playlist/domain/entities/media_item.dart' as app;
 class AppAudioHandler extends BaseAudioHandler with SeekHandler {
   final AudioPlayer player = AudioPlayer();
 
-  /// Injected by AudioBloc after construction so lock-screen / headphone
-  /// next/prev buttons delegate back to the bloc's queue logic.
   VoidCallback? onSkipToNext;
   VoidCallback? onSkipToPrevious;
 
@@ -17,21 +15,19 @@ class AppAudioHandler extends BaseAudioHandler with SeekHandler {
   StreamSubscription? _durationSub;
   StreamSubscription? _playerStateSub;
 
-  // Cache last event so we can re-emit after loading completes.
   PlaybackEvent? _lastEvent;
 
-  // TRUE while setFilePath/setUrl is running.
-  // Blocks forwarding playing=false intermediate states to Android OS.
-  // Without this, Android sees paused state during loading and — because
-  // androidStopForegroundOnPause=true — sends a PAUSE media action back,
-  // physically calling player.pause() right after player.play().
-  // This was the root cause of AudioTrack.pause: prior state=STATE_ACTIVE.
+  // TRUE while loading — blocks ALL playbackState updates to the OS.
+  // This prevents Android from seeing playing=false during setFilePath/setUrl
+  // and sending a PAUSE media button back, which was causing the first-play
+  // freeze (player.pause() firing right after player.play()).
   bool _isLoadingTrack = false;
 
   AppAudioHandler() {
     _playbackEventSub = player.playbackEventStream.listen((event) {
       _lastEvent = event;
-      // Skip OS notification updates during the loading window.
+      // During loading, suppress ALL state updates to the OS notification.
+      // We force-emit the correct playing=true state after play() is called.
       if (!_isLoadingTrack) {
         playbackState.add(_transformEvent(event));
       }
@@ -54,6 +50,9 @@ class AppAudioHandler extends BaseAudioHandler with SeekHandler {
   }
 
   Future<Duration?> loadAndPlay(app.MediaItem item) async {
+    // Raise the guard FIRST — before setFilePath/setUrl — so that the
+    // playing=false events ExoPlayer emits during codec init never reach
+    // the OS notification layer (which would trigger a PAUSE action back).
     _isLoadingTrack = true;
     try {
       mediaItem.add(MediaItem(
@@ -67,46 +66,42 @@ class AppAudioHandler extends BaseAudioHandler with SeekHandler {
       Duration? duration;
       if (item.isNetwork) {
         duration = await player.setUrl(item.path);
+      } else if (item.path.startsWith('content://')) {
+        duration = await player.setUrl(item.path);
       } else {
-        // Prefer setUrl for content:// URIs (Android 13+ MediaStore paths).
-        // setFilePath only works for file:// paths.
-        if (item.path.startsWith('content://')) {
-          duration = await player.setUrl(item.path);
-        } else {
-          duration = await player.setFilePath(item.path);
-        }
+        duration = await player.setFilePath(item.path);
       }
 
-      // content:// URIs often return null duration synchronously — just_audio
-      // has to open a ContentResolver stream to read the container headers,
-      // which finishes asynchronously. Wait up to 3 s for the real value so
-      // AudioBloc can seed AudioReady with a valid duration on the FIRST play
-      // (not just after the second play, once the data is cached).
+      if (item.lastPositionSeconds > 0) {
+        await player.seek(item.lastPosition);
+      }
+
+      // Lower the guard BEFORE play() so the playing=true event
+      // flows through correctly to the OS notification.
+      _isLoadingTrack = false;
+      await player.play();
+
+      // Force-emit state now that the guard is down, in case the
+      // playbackEventStream fired while _isLoadingTrack was true.
+      if (_lastEvent != null) {
+        playbackState.add(_transformEvent(_lastEvent!));
+      }
+
+      // Best-effort: wait a short time for duration to resolve.
+      // content:// and some file paths return null synchronously.
+      // _onDuration in AudioBloc will patch the state if this times out.
       if (duration == null || duration == Duration.zero) {
         try {
           duration = await player.durationStream
               .where((d) => d != null && d != Duration.zero)
               .first
-              .timeout(const Duration(seconds: 3));
-        } catch (_) {
-          // Timeout or error — proceed with null; _onDuration will patch later.
-        }
-      }
-
-      // Clear flag BEFORE play() so playing=true event reaches OS correctly.
-      _isLoadingTrack = false;
-      await player.play();
-
-      // Force-emit current state in case the stream event fired before
-      // we cleared _isLoadingTrack.
-      if (_lastEvent != null) {
-        playbackState.add(_transformEvent(_lastEvent!));
+              .timeout(const Duration(milliseconds: 800));
+        } catch (_) {}
       }
 
       return duration;
     } catch (e) {
       _isLoadingTrack = false;
-      // Emit an error processing state so the UI / OS notification can react.
       playbackState.add(playbackState.value.copyWith(
         processingState: AudioProcessingState.error,
       ));
@@ -120,11 +115,9 @@ class AppAudioHandler extends BaseAudioHandler with SeekHandler {
     return Uri.file(art);
   }
 
-  @override
-  Future<void> play() => player.play();
-
-  @override
-  Future<void> pause() => player.pause();
+  @override Future<void> play()             => player.play();
+  @override Future<void> pause()            => player.pause();
+  @override Future<void> seek(Duration pos) => player.seek(pos);
 
   @override
   Future<void> stop() async {
@@ -132,18 +125,8 @@ class AppAudioHandler extends BaseAudioHandler with SeekHandler {
     await super.stop();
   }
 
-  @override
-  Future<void> seek(Duration pos) => player.seek(pos);
-
-  @override
-  Future<void> skipToNext() async {
-    onSkipToNext?.call();
-  }
-
-  @override
-  Future<void> skipToPrevious() async {
-    onSkipToPrevious?.call();
-  }
+  @override Future<void> skipToNext()     async => onSkipToNext?.call();
+  @override Future<void> skipToPrevious() async => onSkipToPrevious?.call();
 
   @override
   Future<void> onTaskRemoved() async {
