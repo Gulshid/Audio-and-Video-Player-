@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
-import 'package:media_player/core/service/thumnail_service.dart';
+import 'package:media_player/core/service/thumbnail_service.dart';
 
 import '../../domain/entities/media_item.dart';
 
@@ -20,6 +20,7 @@ class MediaListTile extends StatelessWidget {
     this.onFavoriteTap,
     this.onDelete,
     this.isActive = false,
+    this.reorderIndex,
     super.key,
   });
 
@@ -28,6 +29,10 @@ class MediaListTile extends StatelessWidget {
   final VoidCallback? onFavoriteTap;
   final VoidCallback? onDelete;
   final bool         isActive;
+  /// When non-null, a drag handle is shown allowing the item to be
+  /// reordered inside a [ReorderableListView] with
+  /// [buildDefaultDragHandles] set to false.
+  final int?         reorderIndex;
 
   @override
   Widget build(BuildContext context) {
@@ -106,7 +111,19 @@ class MediaListTile extends StatelessWidget {
             ],
           ),
 
-          
+          // Drag handle — only shown when inside a ReorderableListView
+          if (reorderIndex != null)
+            ReorderableDragStartListener(
+              index: reorderIndex!,
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: 4.w),
+                child: Icon(
+                  Icons.drag_handle_rounded,
+                  size: 20.r,
+                  color: scheme.onSurface.withOpacity(.35),
+                ),
+              ),
+            ),
         ],
       ),
     );

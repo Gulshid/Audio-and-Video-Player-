@@ -18,7 +18,7 @@ Future<void> initDependencies() async {
       androidNotificationChannelName: 'Media Playback',
       androidNotificationOngoing:     true,
       androidStopForegroundOnPause:   true,
-      notificationColor:              Color(0xFF164957),
+      notificationColor:              Color(0xFF7C6FF7), // MidnightViolet.primary
       androidNotificationIcon: 'drawable/audio',  // uses your existing audio.png
     ),
   );

@@ -49,8 +49,8 @@ class _HomePageState extends State<HomePage> {
     return ResponsiveBuilder(
       builder: (context, device) {
         return device == DeviceType.phone
-            ? _PhoneShell(index: _index, onNav: _onNav)
-            : _TabletShell(index: _index, onNav: _onNav);
+            ? _PhoneShell(index: _index)
+            : _TabletShell(index: _index);
       },
     );
   }
@@ -81,35 +81,33 @@ class _HomePageState extends State<HomePage> {
 
   // ── Phone : bottom nav bar ────────────────────────────────
 
- // ── Phone : bottom nav bar ────────────────────────────────
-
-Widget _PhoneShell({required int index, required Function onNav}) {
-  return Scaffold(
-    extendBody: true, // lets content flow under translucent nav bar
-    body: Stack(
-      children: [
-        Positioned.fill(child: _body),
-        Positioned(
-          left:   0,
-          right:  0,
-          bottom: kBottomNavigationBarHeight + 8,
-          child:  const AudioMiniPlayer(),
-        ),
-      ],
-    ),
-    bottomNavigationBar: AdvancedNavBar(
-      selectedIndex: index,
-      onDestinationSelected: (i) => _onNav(i),
-    ),
-  );
-}
+  Widget _PhoneShell({required int index}) {
+    return Scaffold(
+      extendBody: true, // lets content flow under translucent nav bar
+      body: Stack(
+        children: [
+          Positioned.fill(child: _body),
+          Positioned(
+            left:   0,
+            right:  0,
+            bottom: kBottomNavigationBarHeight + 8,
+            child:  const AudioMiniPlayer(),
+          ),
+        ],
+      ),
+      bottomNavigationBar: AdvancedNavBar(
+        selectedIndex: index,
+        onDestinationSelected: (i) => _onNav(i),
+      ),
+    );
+  }
 
 
 
 
   // ── Tablet : side nav rail ────────────────────────────────
 
-  Widget _TabletShell({required int index, required Function onNav}) {
+  Widget _TabletShell({required int index}) {
     return Scaffold(
       body: Row(
         children: [

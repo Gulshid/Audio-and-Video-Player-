@@ -351,6 +351,7 @@ class _MediaList extends StatelessWidget {
             return MediaListTile(
               key:           ValueKey(item.id),
               item:          item,
+              reorderIndex:  i,
               onTap:         () => _play(context, item, items),
               onFavoriteTap: () => context
                   .read<PlaylistBloc>()
