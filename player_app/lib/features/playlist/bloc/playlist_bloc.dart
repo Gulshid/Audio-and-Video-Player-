@@ -15,16 +15,19 @@ import 'playlist_state.dart';
 
 class PlaylistBloc extends Bloc<PlaylistEvent, PlaylistState> {
   PlaylistBloc() : super(const PlaylistInitial()) {
-    on<PlaylistLoadEvent>          (_onLoad);
-    on<PlaylistAddItemEvent>       (_onAdd);
-    on<PlaylistAddManyEvent>       (_onAddMany);
-    on<PlaylistRemoveItemEvent>    (_onRemove);
-    on<PlaylistReorderEvent>       (_onReorder);
-    on<PlaylistToggleFavoriteEvent>(_onToggleFav);
-    on<PlaylistClearEvent>         (_onClear);
-    on<PlaylistUpdatePositionEvent>(_onUpdatePos);
-    on<PlaylistSearchEvent>        (_onSearch);
-    on<PlaylistScanDeviceEvent>    (_onScanDevice);
+    on<PlaylistLoadEvent>               (_onLoad);
+    on<PlaylistAddItemEvent>            (_onAdd);
+    on<PlaylistAddManyEvent>            (_onAddMany);
+    on<PlaylistRemoveItemEvent>         (_onRemove);
+    on<PlaylistReorderEvent>            (_onReorder);
+    on<PlaylistToggleFavoriteEvent>     (_onToggleFav);
+    on<PlaylistClearEvent>              (_onClear);
+    on<PlaylistUpdatePositionEvent>     (_onUpdatePos);
+    on<PlaylistSearchEvent>             (_onSearch);
+    on<PlaylistScanDeviceEvent>         (_onScanDevice);
+    on<PlaylistNextEvent>               (_onNext);
+    on<PlaylistPreviousEvent>           (_onPrevious);
+    on<PlaylistConsumeNowPlayingEvent>  (_onConsumeNowPlaying);
   }
 
   Box get _box => Hive.box(AppConstants.playlistBox);
@@ -48,7 +51,10 @@ class PlaylistBloc extends Bloc<PlaylistEvent, PlaylistState> {
     }
   }
 
-  Future<void> _onLoad(PlaylistLoadEvent e, Emitter<PlaylistState> emit) async {
+  // ── Existing handlers (unchanged) ────────────────────────────────────────
+
+  Future<void> _onLoad(
+      PlaylistLoadEvent e, Emitter<PlaylistState> emit) async {
     emit(const PlaylistLoading());
     try {
       if (!Hive.isBoxOpen(AppConstants.playlistBox)) {
@@ -60,7 +66,8 @@ class PlaylistBloc extends Bloc<PlaylistEvent, PlaylistState> {
     }
   }
 
-  Future<void> _onAdd(PlaylistAddItemEvent event, Emitter<PlaylistState> emit) async {
+  Future<void> _onAdd(
+      PlaylistAddItemEvent event, Emitter<PlaylistState> emit) async {
     final current = _currentItems;
     if (current.any((e) => e.id == event.item.id)) return;
     final updated = [...current, event.item];
@@ -68,7 +75,8 @@ class PlaylistBloc extends Bloc<PlaylistEvent, PlaylistState> {
     emit(PlaylistLoaded(items: updated));
   }
 
-  Future<void> _onAddMany(PlaylistAddManyEvent event, Emitter<PlaylistState> emit) async {
+  Future<void> _onAddMany(
+      PlaylistAddManyEvent event, Emitter<PlaylistState> emit) async {
     final current     = _currentItems;
     final existingIds = current.map((e) => e.id).toSet();
     final newItems    = event.items.where((e) => !existingIds.contains(e.id));
@@ -77,15 +85,17 @@ class PlaylistBloc extends Bloc<PlaylistEvent, PlaylistState> {
     emit(PlaylistLoaded(items: updated));
   }
 
-  Future<void> _onRemove(PlaylistRemoveItemEvent event, Emitter<PlaylistState> emit) async {
+  Future<void> _onRemove(
+      PlaylistRemoveItemEvent event, Emitter<PlaylistState> emit) async {
     final updated = _currentItems.where((e) => e.id != event.id).toList();
     await _persist(updated);
     emit(PlaylistLoaded(items: updated));
   }
 
-  Future<void> _onReorder(PlaylistReorderEvent event, Emitter<PlaylistState> emit) async {
-    final list = List<MediaItem>.from(_currentItems);
-    int newIndex = event.newIndex;
+  Future<void> _onReorder(
+      PlaylistReorderEvent event, Emitter<PlaylistState> emit) async {
+    final list     = List<MediaItem>.from(_currentItems);
+    int   newIndex = event.newIndex;
     if (newIndex > event.oldIndex) newIndex--;
     final item = list.removeAt(event.oldIndex);
     list.insert(newIndex, item);
@@ -93,7 +103,8 @@ class PlaylistBloc extends Bloc<PlaylistEvent, PlaylistState> {
     emit(PlaylistLoaded(items: list));
   }
 
-  Future<void> _onToggleFav(PlaylistToggleFavoriteEvent event, Emitter<PlaylistState> emit) async {
+  Future<void> _onToggleFav(
+      PlaylistToggleFavoriteEvent event, Emitter<PlaylistState> emit) async {
     final updated = _currentItems.map((e) {
       return e.id == event.id ? e.copyWith(isFavorite: !e.isFavorite) : e;
     }).toList();
@@ -101,12 +112,14 @@ class PlaylistBloc extends Bloc<PlaylistEvent, PlaylistState> {
     emit(PlaylistLoaded(items: updated));
   }
 
-  Future<void> _onClear(PlaylistClearEvent event, Emitter<PlaylistState> emit) async {
+  Future<void> _onClear(
+      PlaylistClearEvent event, Emitter<PlaylistState> emit) async {
     await _box.clear();
     emit(const PlaylistLoaded(items: []));
   }
 
-  Future<void> _onUpdatePos(PlaylistUpdatePositionEvent event, Emitter<PlaylistState> emit) async {
+  Future<void> _onUpdatePos(
+      PlaylistUpdatePositionEvent event, Emitter<PlaylistState> emit) async {
     final updated = _currentItems.map((e) {
       return e.id == event.id
           ? e.copyWith(lastPositionSeconds: event.positionSeconds)
@@ -118,20 +131,15 @@ class PlaylistBloc extends Bloc<PlaylistEvent, PlaylistState> {
     }
   }
 
-  // FIX #7: Search always filters from the full items list (source of truth),
-  // so tab filters and search can coexist without one overriding the other.
-  // The tab filter in PlaylistPage is applied at the UI layer (displayItems
-  // filtered by MediaType), while search sets the `filtered` field here.
-  void _onSearch(PlaylistSearchEvent event, Emitter<PlaylistState> emit) {
+  void _onSearch(
+      PlaylistSearchEvent event, Emitter<PlaylistState> emit) {
     if (state is! PlaylistLoaded) return;
     final current = state as PlaylistLoaded;
     if (event.query.trim().isEmpty) {
       emit(current.copyWith(clearFilter: true, searchQuery: ''));
       return;
     }
-    final q = event.query.toLowerCase();
-    // FIX #7: Always filter from `items` (full list), never from `filtered`.
-    // This ensures search is independent of any previously applied filter.
+    final q        = event.query.toLowerCase();
     final filtered = current.items.where((e) {
       return e.title.toLowerCase().contains(q) ||
              (e.artist?.toLowerCase().contains(q) ?? false);
@@ -139,12 +147,51 @@ class PlaylistBloc extends Bloc<PlaylistEvent, PlaylistState> {
     emit(current.copyWith(filtered: filtered, searchQuery: event.query));
   }
 
+  // ── Next / Previous ───────────────────────────────────────────────────────
+
+  void _onNext(PlaylistNextEvent event, Emitter<PlaylistState> emit) {
+    if (state is! PlaylistLoaded) return;
+    final current = state as PlaylistLoaded;
+    final items   = current.items;
+    if (items.isEmpty) return;
+
+    final idx     = items.indexWhere((e) => e.id == event.currentId);
+    // If not found or already last → wrap to first.
+    final nextIdx = (idx < 0 || idx >= items.length - 1) ? 0 : idx + 1;
+
+    emit(current.copyWith(nowPlaying: items[nextIdx]));
+  }
+
+  void _onPrevious(PlaylistPreviousEvent event, Emitter<PlaylistState> emit) {
+    if (state is! PlaylistLoaded) return;
+    final current = state as PlaylistLoaded;
+    final items   = current.items;
+    if (items.isEmpty) return;
+
+    final idx     = items.indexWhere((e) => e.id == event.currentId);
+    // If not found or already first → wrap to last.
+    final prevIdx = (idx <= 0) ? items.length - 1 : idx - 1;
+
+    emit(current.copyWith(nowPlaying: items[prevIdx]));
+  }
+
+  /// Called by the UI immediately after it has consumed [nowPlaying] to
+  /// navigate to the new item. Clears the field so it won't re-fire on
+  /// hot-reload or any subsequent rebuild.
+  void _onConsumeNowPlaying(
+      PlaylistConsumeNowPlayingEvent _, Emitter<PlaylistState> emit) {
+    if (state is! PlaylistLoaded) return;
+    emit((state as PlaylistLoaded).copyWith(clearNowPlaying: true));
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+
   List<MediaItem> get _currentItems {
     if (state is PlaylistLoaded) return (state as PlaylistLoaded).items;
     return [];
   }
 
-  // ── Device scan ──────────────────────────────────────────
+  // ── Device scan (unchanged) ───────────────────────────────────────────────
 
   static const _channel = MethodChannel('com.example.player_app/media_store');
 
@@ -159,9 +206,9 @@ class PlaylistBloc extends Bloc<PlaylistEvent, PlaylistState> {
       final existingIds = _currentItems.map((e) => e.id).toSet();
 
       if (Platform.isAndroid || Platform.isIOS) {
-
         final ps = await PhotoManager.requestPermissionExtend();
-        debugPrint('🔑 permission: $ps | hasAccess=${ps.hasAccess} isAuth=${ps.isAuth}');
+        debugPrint(
+            '🔑 permission: $ps | hasAccess=${ps.hasAccess} isAuth=${ps.isAuth}');
 
         if (!ps.hasAccess) {
           debugPrint('🔑 Permanently denied — opening Settings');
@@ -186,7 +233,8 @@ class PlaylistBloc extends Bloc<PlaylistEvent, PlaylistState> {
             final durationMs = map['duration'] as int? ?? 0;
             found.add(MediaItem(
               id:       path,
-              title:    map['title'] as String? ?? p.basenameWithoutExtension(path),
+              title:    map['title'] as String? ??
+                        p.basenameWithoutExtension(path),
               path:     path,
               type:     MediaType.audio,
               artist:   map['artist'] as String?,
@@ -196,12 +244,15 @@ class PlaylistBloc extends Bloc<PlaylistEvent, PlaylistState> {
                   : null,
             ));
           }
-          debugPrint('🎵 Found ${found.length} audio file(s) via MediaStore');
+          debugPrint(
+              '🎵 Found ${found.length} audio file(s) via MediaStore');
         } on MissingPluginException {
-          debugPrint('⚠️ MediaStore channel missing — falling back to photo_manager audio');
+          debugPrint(
+              '⚠️ MediaStore channel missing — falling back to photo_manager audio');
           await _scanAudioViaPhotoManager(found, existingIds);
         } on PlatformException catch (e) {
-          debugPrint('⚠️ MediaStore channel error: $e — falling back to photo_manager audio');
+          debugPrint(
+              '⚠️ MediaStore channel error: $e — falling back to photo_manager audio');
           await _scanAudioViaPhotoManager(found, existingIds);
         }
 
@@ -213,9 +264,10 @@ class PlaylistBloc extends Bloc<PlaylistEvent, PlaylistState> {
         debugPrint('🎬 ${videoAlbums.length} video album(s)');
 
         for (final album in videoAlbums) {
-          final count = await album.assetCountAsync;
+          final count  = await album.assetCountAsync;
           if (count == 0) continue;
-          final assets = await album.getAssetListRange(start: 0, end: count);
+          final assets =
+              await album.getAssetListRange(start: 0, end: count);
           for (final asset in assets) {
             final file = await asset.originFile;
             final path = file?.path;
@@ -232,7 +284,6 @@ class PlaylistBloc extends Bloc<PlaylistEvent, PlaylistState> {
             ));
           }
         }
-
       } else {
         final home = Platform.environment['HOME'] ??
             Platform.environment['USERPROFILE'] ?? '/';
@@ -240,12 +291,15 @@ class PlaylistBloc extends Bloc<PlaylistEvent, PlaylistState> {
           ...AppConstants.audioExtensions,
           ...AppConstants.videoExtensions,
         };
-        await for (final entity
-            in Directory(home).list(recursive: true, followLinks: false)) {
+        await for (final entity in Directory(home)
+            .list(recursive: true, followLinks: false)) {
           if (entity is! File) continue;
-          final ext =
-              p.extension(entity.path).replaceFirst('.', '').toLowerCase();
-          if (!allExts.contains(ext) || existingIds.contains(entity.path)) continue;
+          final ext = p
+              .extension(entity.path)
+              .replaceFirst('.', '')
+              .toLowerCase();
+          if (!allExts.contains(ext) ||
+              existingIds.contains(entity.path)) continue;
           found.add(MediaItem(
             id:    entity.path,
             title: p.basenameWithoutExtension(entity.path),
@@ -261,7 +315,6 @@ class PlaylistBloc extends Bloc<PlaylistEvent, PlaylistState> {
       final updated = [..._currentItems, ...found];
       await _persist(updated);
       emit(PlaylistLoaded(items: updated, lastScanCount: found.length));
-
     } catch (e, st) {
       debugPrint('❌ Scan error: $e\n$st');
       emit(PlaylistError(e.toString()));
@@ -276,11 +329,13 @@ class PlaylistBloc extends Bloc<PlaylistEvent, PlaylistState> {
       type:   RequestType.audio,
       hasAll: true,
     );
-    debugPrint('🎵 photo_manager audio: ${audioAlbums.length} album(s)');
+    debugPrint(
+        '🎵 photo_manager audio: ${audioAlbums.length} album(s)');
     for (final album in audioAlbums) {
-      final count = await album.assetCountAsync;
+      final count  = await album.assetCountAsync;
       if (count == 0) continue;
-      final assets = await album.getAssetListRange(start: 0, end: count);
+      final assets =
+          await album.getAssetListRange(start: 0, end: count);
       for (final asset in assets) {
         final file = await asset.originFile;
         final path = file?.path;

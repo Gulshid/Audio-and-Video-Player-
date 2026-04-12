@@ -24,8 +24,9 @@ class PlaylistLoaded extends PlaylistState {
   const PlaylistLoaded({
     required this.items,
     this.filtered,
-    this.searchQuery = '',
+    this.searchQuery    = '',
     this.lastScanCount,
+    this.nowPlaying,      // ← non-null for exactly one emit; consumed by UI
   });
 
   /// Full list (source of truth — persisted).
@@ -39,28 +40,52 @@ class PlaylistLoaded extends PlaylistState {
   /// How many new items were added by the last scan (null = no scan yet).
   final int? lastScanCount;
 
+  /// Set by PlaylistNextEvent / PlaylistPreviousEvent for one emit so that a
+  /// BlocListener on the player page can navigate to the new item.
+  /// Cleared immediately by PlaylistConsumeNowPlayingEvent.
+  final MediaItem? nowPlaying;
+
   /// The list the UI should render.
   List<MediaItem> get displayItems => filtered ?? items;
 
-  List<MediaItem> get favorites =>
-      items.where((e) => e.isFavorite).toList();
+  List<MediaItem> get favorites => items.where((e) => e.isFavorite).toList();
+
+  /// Index of [item] in the full list, or -1 if not found.
+  int indexOf(String id) => items.indexWhere((e) => e.id == id);
+
+  /// Whether there is a next item after [id] (no wrap-around check —
+  /// we always wrap, but callers can use this to grey out the button
+  /// if they want strict end-of-list behaviour).
+  bool hasNext(String id) {
+    final i = indexOf(id);
+    return i >= 0 && i < items.length - 1;
+  }
+
+  bool hasPrevious(String id) {
+    final i = indexOf(id);
+    return i > 0;
+  }
 
   PlaylistLoaded copyWith({
     List<MediaItem>? items,
     List<MediaItem>? filtered,
     String?          searchQuery,
     int?             lastScanCount,
-    bool             clearFilter = false,
+    bool             clearFilter    = false,
+    MediaItem?       nowPlaying,
+    bool             clearNowPlaying = false,
   }) =>
       PlaylistLoaded(
         items:         items         ?? this.items,
-        filtered:      clearFilter ? null : (filtered ?? this.filtered),
+        filtered:      clearFilter   ? null : (filtered ?? this.filtered),
         searchQuery:   searchQuery   ?? this.searchQuery,
         lastScanCount: lastScanCount ?? this.lastScanCount,
+        nowPlaying:    clearNowPlaying ? null : (nowPlaying ?? this.nowPlaying),
       );
 
   @override
-  List<Object?> get props => [items, filtered, searchQuery, lastScanCount];
+  List<Object?> get props =>
+      [items, filtered, searchQuery, lastScanCount, nowPlaying];
 }
 
 class PlaylistError extends PlaylistState {

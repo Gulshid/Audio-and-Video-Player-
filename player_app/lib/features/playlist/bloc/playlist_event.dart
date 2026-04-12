@@ -79,3 +79,27 @@ class PlaylistSearchEvent extends PlaylistEvent {
 class PlaylistScanDeviceEvent extends PlaylistEvent {
   const PlaylistScanDeviceEvent();
 }
+
+/// Skip to the next item after [currentId].
+/// If [currentId] is the last item, wraps around to the first.
+class PlaylistNextEvent extends PlaylistEvent {
+  const PlaylistNextEvent(this.currentId);
+  final String currentId;
+  @override
+  List<Object?> get props => [currentId];
+}
+
+/// Skip to the previous item before [currentId].
+/// If [currentId] is the first item, wraps around to the last.
+class PlaylistPreviousEvent extends PlaylistEvent {
+  const PlaylistPreviousEvent(this.currentId);
+  final String currentId;
+  @override
+  List<Object?> get props => [currentId];
+}
+
+/// Clear [nowPlaying] after the UI has consumed it, preventing re-navigation
+/// on hot-reload or state rebuilds.
+class PlaylistConsumeNowPlayingEvent extends PlaylistEvent {
+  const PlaylistConsumeNowPlayingEvent();
+}
