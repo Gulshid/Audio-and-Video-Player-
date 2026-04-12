@@ -14,6 +14,22 @@ class AudioControls extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return BlocBuilder<AudioBloc, AudioState>(
+      // FIX: Only rebuild controls when playback-control-relevant state
+      // changes. Position/duration ticks (emitted ~4× per second) do NOT
+      // affect any control button, so skipping those rebuilds eliminates
+      // the jank caused by rebuilding AnimatedSwitcher/AnimatedContainer
+      // on every tick.
+      buildWhen: (prev, curr) {
+        if (prev.runtimeType != curr.runtimeType) return true;
+        if (curr is AudioReady && prev is AudioReady) {
+          return prev.isPlaying  != curr.isPlaying  ||
+                 prev.hasPrev    != curr.hasPrev    ||
+                 prev.hasNext    != curr.hasNext    ||
+                 prev.repeatMode != curr.repeatMode ||
+                 prev.isShuffle  != curr.isShuffle;
+        }
+        return true;
+      },
       builder: (context, state) {
         final s         = state is AudioReady ? state : null;
         final isPlaying = s?.isPlaying ?? false;

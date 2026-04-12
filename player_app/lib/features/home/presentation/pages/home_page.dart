@@ -1,13 +1,10 @@
 // ignore_for_file: unnecessary_underscores
 
 import 'package:flutter/material.dart';
-import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart' hide DeviceType;
 import 'package:media_player/features/home/presentation/pages/navbar.dart';
 
 import '../../../../core/widgets/responsive_builder.dart';
-import '../../../audio_player/bloc/audio_bloc.dart';
-import '../../../audio_player/bloc/audio_state.dart';
 import '../../../audio_player/presentation/widgets/audio_mini_player.dart';
 import '../../../playlist/domain/entities/media_item.dart';
 import '../../../playlist/presentation/pages/playlist_page.dart';
@@ -126,13 +123,10 @@ class _PhoneShell extends StatelessWidget {
       bottomNavigationBar: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Mini player — only visible when audio is playing.
-          BlocBuilder<AudioBloc, AudioState>(
-            builder: (context, state) {
-              if (state is! AudioReady) return const SizedBox.shrink();
-              return const AudioMiniPlayer();
-            },
-          ),
+          // FIX: AudioMiniPlayer handles its own BlocBuilder + visibility
+          // internally. Wrapping it in another BlocBuilder caused double
+          // rebuilds on every position tick.
+          const AudioMiniPlayer(),
           // Bottom nav bar.
           AdvancedNavBar(
             selectedIndex:        index,
@@ -181,13 +175,8 @@ class _TabletShell extends StatelessWidget {
             child: Column(
               children: [
                 Expanded(child: body),
-                // FIX #1: Mini player rendered once, only here on tablet.
-                BlocBuilder<AudioBloc, AudioState>(
-                  builder: (context, state) {
-                    if (state is! AudioReady) return const SizedBox.shrink();
-                    return const AudioMiniPlayer();
-                  },
-                ),
+                // FIX: AudioMiniPlayer manages its own visibility internally.
+                const AudioMiniPlayer(),
                 SizedBox(height: 8.h),
               ],
             ),

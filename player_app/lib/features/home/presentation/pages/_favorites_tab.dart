@@ -57,7 +57,7 @@ class FavoritesTab extends StatelessWidget {
                     context
                         .read<AudioBloc>()
                         .add(AudioPlayEvent(item, playlist: favs));
-                    WidgetsBinding.instance.addPostFrameCallback((_) { if (context.mounted) context.push('/audio-player'); });
+                    Future.microtask(() { if (context.mounted) context.push('/audio-player', extra: item); });
                   } else {
                     context.push('/video-player', extra: item);
                   }

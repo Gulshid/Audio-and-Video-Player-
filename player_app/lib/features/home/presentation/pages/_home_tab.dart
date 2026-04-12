@@ -186,7 +186,7 @@ class _MediaCard extends StatelessWidget {
       onTap: () {
         if (isAudio) {
           context.read<AudioBloc>().add(AudioPlayEvent(item));
-          WidgetsBinding.instance.addPostFrameCallback((_) { if (context.mounted) context.push('/audio-player'); });
+          Future.microtask(() { if (context.mounted) context.push('/audio-player', extra: item); });
         } else {
           context.push('/video-player', extra: item);
         }

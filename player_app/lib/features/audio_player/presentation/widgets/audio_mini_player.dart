@@ -30,11 +30,13 @@ class AudioMiniPlayer extends StatelessWidget {
         final bloc   = context.read<AudioBloc>();
 
         return GestureDetector(
-          // FIX: Use addPostFrameCallback so navigation never fires
+          // FIX: Use Future.microtask so navigation never fires
           // during a build frame — avoids the jank / freeze on first tap.
           onTap: () {
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (context.mounted) context.push('/audio-player');
+            // Pass currentItem so AudioPlayerPage shows track info instantly.
+            final item = state.currentItem;
+            Future.microtask(() {
+              if (context.mounted) context.push('/audio-player', extra: item);
             });
           },
           child: Container(

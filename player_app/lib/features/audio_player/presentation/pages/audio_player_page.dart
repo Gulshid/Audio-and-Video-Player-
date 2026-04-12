@@ -5,14 +5,27 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart' hide DeviceType;
 
 import '../../../../core/widgets/responsive_builder.dart';
+import '../../../playlist/domain/entities/media_item.dart';
 import '../../bloc/audio_bloc.dart';
 import '../../bloc/audio_event.dart';
 import '../../bloc/audio_state.dart';
 import '../widgets/audio_controls.dart';
 import '../widgets/audio_progress_bar.dart';
 
+// FIX — ROOT CAUSE OF FREEZE / BLANK SCREEN:
+// The page was opened while AudioBloc was still in AudioLoading state.
+// AudioLoading has no currentItem, so the page had nothing to display
+// until AudioReady arrived (which could take 1-3 s on Android SAF
+// content:// URIs). The fix: accept the MediaItem as an initialItem
+// argument so the page can render title / artist / album art immediately,
+// with a small spinner on the album art while audio finishes loading.
+
 class AudioPlayerPage extends StatelessWidget {
-  const AudioPlayerPage({super.key});
+  /// Passed from the navigation call site so the page can display track
+  /// info immediately — before AudioBloc reaches AudioReady.
+  final MediaItem? initialItem;
+
+  const AudioPlayerPage({super.key, this.initialItem});
 
   @override
   Widget build(BuildContext context) {
@@ -34,8 +47,8 @@ class AudioPlayerPage extends StatelessWidget {
       body: ResponsiveBuilder(
         builder: (context, device) {
           return device == DeviceType.phone
-              ? const _PhoneLayout()
-              : const _TabletLayout();
+              ? _PhoneLayout(initialItem: initialItem)
+              : _TabletLayout(initialItem: initialItem);
         },
       ),
     );
@@ -53,16 +66,44 @@ class AudioPlayerPage extends StatelessWidget {
   }
 }
 
-// ── Phone layout : vertical stack ────────────────────────────
+// ── Phone layout ──────────────────────────────────────────────
 
 class _PhoneLayout extends StatelessWidget {
-  const _PhoneLayout();
+  final MediaItem? initialItem;
+  const _PhoneLayout({this.initialItem});
 
   @override
   Widget build(BuildContext context) {
     return BlocBuilder<AudioBloc, AudioState>(
       builder: (context, state) {
-        final s = state is AudioReady ? state : null;
+
+        if (state is AudioError) {
+          return Center(
+            child: Padding(
+              padding: EdgeInsets.all(24.r),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.error_outline_rounded,
+                      size: 48.r,
+                      color: Theme.of(context).colorScheme.error),
+                  SizedBox(height: 12.h),
+                  Text(state.message,
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodyMedium),
+                ],
+              ),
+            ),
+          );
+        }
+
+        final s         = state is AudioReady ? state : null;
+        final isLoading = state is AudioLoading || state is AudioInitial;
+
+        // KEY FIX: use AudioReady data when available, else fall back to
+        // initialItem passed from the navigation call site. This means the
+        // page shows real track info the moment it opens — no blank/dash UI.
+        final displayItem = s?.currentItem ?? initialItem;
 
         return SafeArea(
           child: Padding(
@@ -71,32 +112,37 @@ class _PhoneLayout extends StatelessWidget {
               children: [
                 SizedBox(height: 24.h),
 
-                // ── Album art ──────────────────────────────
-                _AlbumArt(albumArt: s?.currentItem.albumArt),
+                // ── Album art + subtle loading ring ────────
+                Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    _AlbumArt(albumArt: displayItem?.albumArt),
+                    if (isLoading)
+                      SizedBox(
+                        width:  52.r,
+                        height: 52.r,
+                        child: CircularProgressIndicator(
+                          color:       Colors.white70,
+                          strokeWidth: 3,
+                        ),
+                      ),
+                  ],
+                ),
 
                 SizedBox(height: 32.h),
 
-                // ── Title & artist ─────────────────────────
+                // ── Title & artist — shown immediately ─────
                 _TrackInfo(
-                  title:  s?.currentItem.title  ?? '—',
-                  artist: s?.currentItem.artist ?? '',
+                  title:  displayItem?.title  ?? '—',
+                  artist: displayItem?.artist ?? '',
                 ),
 
                 SizedBox(height: 24.h),
-
-                // ── Progress bar ───────────────────────────
                 const AudioProgressBar(),
-
                 SizedBox(height: 16.h),
-
-                // ── Controls ───────────────────────────────
                 const AudioControls(),
-
                 SizedBox(height: 24.h),
-
-                // ── Volume slider ──────────────────────────
                 _VolumeRow(volume: s?.volume ?? 1.0),
-
                 const Spacer(),
               ],
             ),
@@ -107,29 +153,53 @@ class _PhoneLayout extends StatelessWidget {
   }
 }
 
-// ── Tablet layout : side-by-side ─────────────────────────────
+// ── Tablet layout ─────────────────────────────────────────────
 
 class _TabletLayout extends StatelessWidget {
-  const _TabletLayout();
+  final MediaItem? initialItem;
+  const _TabletLayout({this.initialItem});
 
   @override
   Widget build(BuildContext context) {
     return BlocBuilder<AudioBloc, AudioState>(
       builder: (context, state) {
-        final s = state is AudioReady ? state : null;
+        if (state is AudioError) {
+          return Center(
+            child: Padding(
+              padding: EdgeInsets.all(24.r),
+              child: Text(state.message,
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodyMedium),
+            ),
+          );
+        }
+
+        final s           = state is AudioReady ? state : null;
+        final isLoading   = state is AudioLoading || state is AudioInitial;
+        final displayItem = s?.currentItem ?? initialItem;
 
         return SafeArea(
           child: Row(
             children: [
-              // Left — album art
               Expanded(
                 child: Padding(
                   padding: EdgeInsets.all(40.r),
-                  child: _AlbumArt(albumArt: s?.currentItem.albumArt),
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      _AlbumArt(albumArt: displayItem?.albumArt),
+                      if (isLoading)
+                        SizedBox(
+                          width:  52.r,
+                          height: 52.r,
+                          child: CircularProgressIndicator(
+                            color: Colors.white70, strokeWidth: 3,
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
               ),
-
-              // Right — info + controls
               Expanded(
                 child: Padding(
                   padding: EdgeInsets.fromLTRB(0, 40.h, 40.w, 40.h),
@@ -137,8 +207,8 @@ class _TabletLayout extends StatelessWidget {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       _TrackInfo(
-                        title:  s?.currentItem.title  ?? '—',
-                        artist: s?.currentItem.artist ?? '',
+                        title:  displayItem?.title  ?? '—',
+                        artist: displayItem?.artist ?? '',
                       ),
                       SizedBox(height: 32.h),
                       const AudioProgressBar(),
@@ -207,21 +277,17 @@ class _TrackInfo extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        Text(
-          title,
-          maxLines: 2,
-          textAlign: TextAlign.center,
-          overflow: TextOverflow.ellipsis,
-          style: Theme.of(context).textTheme.titleLarge,
-        ),
+        Text(title,
+            maxLines: 2,
+            textAlign: TextAlign.center,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.titleLarge),
         SizedBox(height: 6.h),
-        Text(
-          artist,
-          maxLines: 1,
-          textAlign: TextAlign.center,
-          overflow: TextOverflow.ellipsis,
-          style: Theme.of(context).textTheme.bodyMedium,
-        ),
+        Text(artist,
+            maxLines: 1,
+            textAlign: TextAlign.center,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.bodyMedium),
       ],
     );
   }
@@ -240,9 +306,7 @@ class _VolumeRow extends StatelessWidget {
             color: Theme.of(context).colorScheme.onSurface.withOpacity(.5)),
         Expanded(
           child: Slider(
-            value: volume,
-            min:   0,
-            max:   1,
+            value: volume, min: 0, max: 1,
             onChanged: (v) => bloc.add(AudioSetVolumeEvent(v)),
           ),
         ),
