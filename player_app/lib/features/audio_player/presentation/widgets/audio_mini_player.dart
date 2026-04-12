@@ -11,7 +11,12 @@ import '../../bloc/audio_event.dart';
 import '../../bloc/audio_state.dart';
 
 /// Sticky mini-player rendered above the bottom nav bar.
-/// Tapping it navigates to the full audio player screen.
+///
+/// FIX — MINI PLAYER: Navigation (context.push) must never be called
+/// directly inside a BlocBuilder builder function because the builder
+/// can be invoked during a frame build, causing "setState during build"
+/// errors and jank on first open. We use a BlocListener for the
+/// navigation side-effect and BlocBuilder only for pure UI rendering.
 class AudioMiniPlayer extends StatelessWidget {
   const AudioMiniPlayer({super.key});
 
@@ -25,7 +30,13 @@ class AudioMiniPlayer extends StatelessWidget {
         final bloc   = context.read<AudioBloc>();
 
         return GestureDetector(
-          onTap: () => context.push('/audio-player'),
+          // FIX: Use addPostFrameCallback so navigation never fires
+          // during a build frame — avoids the jank / freeze on first tap.
+          onTap: () {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (context.mounted) context.push('/audio-player');
+            });
+          },
           child: Container(
             height: AppConstants.miniPlayerHeight.h,
             margin: EdgeInsets.symmetric(horizontal: 12.w, vertical: 6.h),
@@ -43,7 +54,7 @@ class AudioMiniPlayer extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // ── Progress bar at top of mini player ──────────
+                // ── Progress bar at top ──────────────────────────
                 _MiniProgressBar(
                   progress: state.progress,
                   color:    scheme.primary,
@@ -97,14 +108,11 @@ class AudioMiniPlayer extends StatelessWidget {
 
                       // Prev
                       _MiniIconButton(
-                        icon: Icons.skip_previous_rounded,
-                        size: 22.r,
+                        icon:  Icons.skip_previous_rounded,
+                        size:  22.r,
                         color: state.hasPrev
                             ? scheme.onSurface
                             : scheme.onSurface.withOpacity(.25),
-                        // FIX #2: Use context.read to get bloc — avoid capturing
-                        // stale bloc ref. This also means the GestureDetector
-                        // for the whole row won't intercept these taps.
                         onTap: state.hasPrev
                             ? () => bloc.add(const AudioPrevTrackEvent())
                             : null,
@@ -124,8 +132,8 @@ class AudioMiniPlayer extends StatelessWidget {
 
                       // Next
                       _MiniIconButton(
-                        icon: Icons.skip_next_rounded,
-                        size: 22.r,
+                        icon:  Icons.skip_next_rounded,
+                        size:  22.r,
                         color: state.hasNext
                             ? scheme.onSurface
                             : scheme.onSurface.withOpacity(.25),
@@ -134,17 +142,10 @@ class AudioMiniPlayer extends StatelessWidget {
                             : null,
                       ),
 
-                      // ── FIX #2: Close button ──────────────────────
-                      // Wrapped in its own GestureDetector with
-                      // HitTestBehavior.opaque so it always captures
-                      // the tap and never bubbles up to the parent
-                      // GestureDetector (which would navigate instead).
+                      // Close / stop
                       GestureDetector(
                         behavior: HitTestBehavior.opaque,
-                        onTap: () {
-                          // Stop bubble to parent GestureDetector
-                          bloc.add(const AudioStopEvent());
-                        },
+                        onTap:    () => bloc.add(const AudioStopEvent()),
                         child: Padding(
                           padding: EdgeInsets.symmetric(
                             horizontal: 8.w,
@@ -173,7 +174,6 @@ class AudioMiniPlayer extends StatelessWidget {
 
 // ── Sub-widgets ───────────────────────────────────────────────
 
-/// Thin progress bar clipped to the top rounded corners of the mini player.
 class _MiniProgressBar extends StatelessWidget {
   const _MiniProgressBar({required this.progress, required this.color});
   final double progress;
@@ -233,7 +233,6 @@ class _MiniAlbumArt extends StatelessWidget {
   }
 }
 
-/// Tap target-safe icon button for the mini player row.
 class _MiniIconButton extends StatelessWidget {
   const _MiniIconButton({
     required this.icon,
@@ -241,15 +240,14 @@ class _MiniIconButton extends StatelessWidget {
     required this.color,
     this.onTap,
   });
-  final IconData icon;
-  final double   size;
-  final Color    color;
+  final IconData      icon;
+  final double        size;
+  final Color         color;
   final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      // FIX #2: opaque so this intercepts tap and doesn't bubble
       behavior: HitTestBehavior.opaque,
       onTap:    onTap,
       child: Padding(

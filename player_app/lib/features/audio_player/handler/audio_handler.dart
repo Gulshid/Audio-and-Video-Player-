@@ -17,17 +17,11 @@ class AppAudioHandler extends BaseAudioHandler with SeekHandler {
 
   PlaybackEvent? _lastEvent;
 
-  // TRUE while loading — blocks ALL playbackState updates to the OS.
-  // This prevents Android from seeing playing=false during setFilePath/setUrl
-  // and sending a PAUSE media button back, which was causing the first-play
-  // freeze (player.pause() firing right after player.play()).
   bool _isLoadingTrack = false;
 
   AppAudioHandler() {
     _playbackEventSub = player.playbackEventStream.listen((event) {
       _lastEvent = event;
-      // During loading, suppress ALL state updates to the OS notification.
-      // We force-emit the correct playing=true state after play() is called.
       if (!_isLoadingTrack) {
         playbackState.add(_transformEvent(event));
       }
@@ -49,10 +43,15 @@ class AppAudioHandler extends BaseAudioHandler with SeekHandler {
     });
   }
 
+  /// Loads and starts playback.
+  ///
+  /// KEY FIX: Duration polling (the 800 ms timeout) is removed from this
+  /// method. It was the primary cause of the first-play freeze — it blocked
+  /// the entire bloc event-handler for up to 800 ms, preventing any UI
+  /// updates. Duration is now delivered asynchronously through the
+  /// durationStream subscription in AudioBloc (_onDuration), which patches
+  /// AudioReady.duration the moment it becomes available without blocking.
   Future<Duration?> loadAndPlay(app.MediaItem item) async {
-    // Raise the guard FIRST — before setFilePath/setUrl — so that the
-    // playing=false events ExoPlayer emits during codec init never reach
-    // the OS notification layer (which would trigger a PAUSE action back).
     _isLoadingTrack = true;
     try {
       mediaItem.add(MediaItem(
@@ -76,29 +75,16 @@ class AppAudioHandler extends BaseAudioHandler with SeekHandler {
         await player.seek(item.lastPosition);
       }
 
-      // Lower the guard BEFORE play() so the playing=true event
-      // flows through correctly to the OS notification.
       _isLoadingTrack = false;
       await player.play();
 
-      // Force-emit state now that the guard is down, in case the
-      // playbackEventStream fired while _isLoadingTrack was true.
       if (_lastEvent != null) {
         playbackState.add(_transformEvent(_lastEvent!));
       }
 
-      // Best-effort: wait a short time for duration to resolve.
-      // content:// and some file paths return null synchronously.
-      // _onDuration in AudioBloc will patch the state if this times out.
-      if (duration == null || duration == Duration.zero) {
-        try {
-          duration = await player.durationStream
-              .where((d) => d != null && d != Duration.zero)
-              .first
-              .timeout(const Duration(milliseconds: 800));
-        } catch (_) {}
-      }
-
+      // Return whatever the platform resolved synchronously (may be null).
+      // AudioBloc's _onDuration subscription will deliver the real value
+      // asynchronously — no blocking wait here.
       return duration;
     } catch (e) {
       _isLoadingTrack = false;

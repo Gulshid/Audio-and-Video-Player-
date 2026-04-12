@@ -347,7 +347,7 @@ class _MediaList extends StatelessWidget {
             left:   12.w,
             right:  12.w,
             top:    8.h,
-            bottom: AppConstants.miniPlayerHeight.h + 80.h + 10.h,
+            bottom: 80.h + 10.h,
           ),
           itemCount:                items.length,
           buildDefaultDragHandles:  false,   // ← kills the long-press conflict
@@ -377,7 +377,7 @@ class _MediaList extends StatelessWidget {
       context
           .read<AudioBloc>()
           .add(AudioPlayEvent(item, playlist: queue));
-      context.push('/audio-player');
+      WidgetsBinding.instance.addPostFrameCallback((_) { if (context.mounted) context.push('/audio-player'); });
     } else {
       context.push('/video-player', extra: item);
     }

@@ -92,15 +92,21 @@ class AudioBloc extends Bloc<AudioEvent, AudioState> {
 
       _persistCurrentPosition();
 
-      if (_posSub == null) _subscribeToPlayer();
-
-      // loadAndPlay handles seek-to-last-position internally now.
+      // FIX — FREEZE ROOT CAUSE:
+      // loadAndPlay no longer does any blocking duration polling (the old
+      // 800 ms timeout is gone). It returns immediately after player.play()
+      // fires. Duration arrives asynchronously via _onDuration below, which
+      // patches AudioReady.duration without blocking the event handler.
+      // This means the UI transitions from AudioLoading → AudioReady almost
+      // instantly — no more frozen/blurred screen on first play.
       final loadedDuration = await _handler.loadAndPlay(item);
 
       _shufflePlayed
         ..clear()
         ..add(index);
 
+      // Emit AudioReady immediately with whatever duration we have.
+      // If duration is still null/zero, _onDuration will patch it shortly.
       emit(AudioReady(
         currentItem: item,
         isPlaying:   true,
@@ -275,6 +281,9 @@ class AudioBloc extends Bloc<AudioEvent, AudioState> {
     emit(s.copyWith(position: clamped));
   }
 
+  // FIX — FREEZE: _onDuration now patches AudioReady even if duration was
+  // zero at emit time. This is the async delivery path that replaces the
+  // old 800 ms blocking wait that was causing the first-play freeze.
   void _onDuration(AudioDurationUpdatedEvent event, Emitter<AudioState> emit) {
     if (event.duration == null || event.duration == Duration.zero) return;
     if (state is AudioReady) {

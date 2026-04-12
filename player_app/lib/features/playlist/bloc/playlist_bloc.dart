@@ -118,6 +118,10 @@ class PlaylistBloc extends Bloc<PlaylistEvent, PlaylistState> {
     }
   }
 
+  // FIX #7: Search always filters from the full items list (source of truth),
+  // so tab filters and search can coexist without one overriding the other.
+  // The tab filter in PlaylistPage is applied at the UI layer (displayItems
+  // filtered by MediaType), while search sets the `filtered` field here.
   void _onSearch(PlaylistSearchEvent event, Emitter<PlaylistState> emit) {
     if (state is! PlaylistLoaded) return;
     final current = state as PlaylistLoaded;
@@ -126,6 +130,8 @@ class PlaylistBloc extends Bloc<PlaylistEvent, PlaylistState> {
       return;
     }
     final q = event.query.toLowerCase();
+    // FIX #7: Always filter from `items` (full list), never from `filtered`.
+    // This ensures search is independent of any previously applied filter.
     final filtered = current.items.where((e) {
       return e.title.toLowerCase().contains(q) ||
              (e.artist?.toLowerCase().contains(q) ?? false);
@@ -140,8 +146,6 @@ class PlaylistBloc extends Bloc<PlaylistEvent, PlaylistState> {
 
   // ── Device scan ──────────────────────────────────────────
 
-  // MethodChannel to query audio via Android MediaStore directly.
-  // This bypasses photo_manager's audio limitation under LIMITED permission.
   static const _channel = MethodChannel('com.example.player_app/media_store');
 
   Future<void> _onScanDevice(
@@ -156,7 +160,6 @@ class PlaylistBloc extends Bloc<PlaylistEvent, PlaylistState> {
 
       if (Platform.isAndroid || Platform.isIOS) {
 
-        // ── Request permission ─────────────────────────────
         final ps = await PhotoManager.requestPermissionExtend();
         debugPrint('🔑 permission: $ps | hasAccess=${ps.hasAccess} isAuth=${ps.isAuth}');
 
@@ -169,14 +172,6 @@ class PlaylistBloc extends Bloc<PlaylistEvent, PlaylistState> {
           return;
         }
 
-        // ── Audio — query MediaStore directly via MethodChannel ────────────
-        // photo_manager's RequestType.audio returns 0 albums when permission
-        // is LIMITED (Android 13 partial grant) because the user only granted
-        // access to photos/videos, not audio. Audio needs READ_MEDIA_AUDIO
-        // which is a separate Android permission. We query MediaStore directly
-        // via a native MethodChannel call which works regardless of
-        // photo_manager's permission state, as long as READ_MEDIA_AUDIO (API 33+)
-        // or READ_EXTERNAL_STORAGE (API <33) is declared in AndroidManifest.xml.
         debugPrint('🎵 Querying audio via MediaStore…');
 
         try {
@@ -195,7 +190,7 @@ class PlaylistBloc extends Bloc<PlaylistEvent, PlaylistState> {
               path:     path,
               type:     MediaType.audio,
               artist:   map['artist'] as String?,
-              albumArt: map['albumArt'] as String?,   // ← cache file path from native
+              albumArt: map['albumArt'] as String?,
               duration: durationMs > 0
                   ? Duration(milliseconds: durationMs)
                   : null,
@@ -203,8 +198,6 @@ class PlaylistBloc extends Bloc<PlaylistEvent, PlaylistState> {
           }
           debugPrint('🎵 Found ${found.length} audio file(s) via MediaStore');
         } on MissingPluginException {
-          // Native channel not wired yet — fall back to photo_manager audio.
-          // Remove this fallback once you add the Kotlin channel (see README).
           debugPrint('⚠️ MediaStore channel missing — falling back to photo_manager audio');
           await _scanAudioViaPhotoManager(found, existingIds);
         } on PlatformException catch (e) {
@@ -212,7 +205,6 @@ class PlaylistBloc extends Bloc<PlaylistEvent, PlaylistState> {
           await _scanAudioViaPhotoManager(found, existingIds);
         }
 
-        // ── Video — PhotoManager works fine for video ──────────────────────
         debugPrint('🎬 Querying video…');
         final videoAlbums = await PhotoManager.getAssetPathList(
           type:   RequestType.video,
@@ -242,7 +234,6 @@ class PlaylistBloc extends Bloc<PlaylistEvent, PlaylistState> {
         }
 
       } else {
-        // ── Desktop: recursive walk ────────────────────────
         final home = Platform.environment['HOME'] ??
             Platform.environment['USERPROFILE'] ?? '/';
         final allExts = {
@@ -277,8 +268,6 @@ class PlaylistBloc extends Bloc<PlaylistEvent, PlaylistState> {
     }
   }
 
-  /// Fallback: use photo_manager to get audio. Works on Android <13 or
-  /// when full (non-limited) permission is granted.
   Future<void> _scanAudioViaPhotoManager(
     List<MediaItem> found,
     Set<String> existingIds,

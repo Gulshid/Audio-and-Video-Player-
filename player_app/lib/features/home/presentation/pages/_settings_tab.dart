@@ -1,5 +1,3 @@
-// ignore_for_file: unused_local_variable
-
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
@@ -8,12 +6,13 @@ import '../../../../core/theme/theme_cubit.dart';
 import '../../../playlist/bloc/playlist_bloc.dart';
 import '../../../playlist/bloc/playlist_event.dart';
 
+// FIX #8: Removed unused `scheme` variable and its suppress comment.
+
 class SettingsTab extends StatelessWidget {
   const SettingsTab({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final scheme    = Theme.of(context).colorScheme;
     final themeCubit = context.read<ThemeCubit>();
 
     return Scaffold(
@@ -61,7 +60,7 @@ class SettingsTab extends StatelessWidget {
           _SectionHeader('Library'),
           Card(
             child: ListTile(
-              leading: Icon(Icons.delete_sweep_rounded,
+              leading: const Icon(Icons.delete_sweep_rounded,
                   color: Colors.redAccent),
               title: const Text('Clear all media'),
               onTap: () => showDialog(

@@ -8,11 +8,12 @@ class ThumbnailService {
   ThumbnailService._();
   static final ThumbnailService instance = ThumbnailService._();
 
-  // Throttle: only N concurrent generations so the list doesn't
-  // flood the platform channel all at once
   int _active = 0;
   static const _maxConcurrent = 3;
-  final _queue = <Future<void> Function()>[];
+
+  // FIX #3: Queue stores Completers directly. The finally block completes
+  // the next one when a slot frees — truly pausing the waiting caller.
+  final _queue = <Completer<void>>[];
 
   Future<String?> getThumbnail(String videoPath,
       {bool isNetwork = false}) async {
@@ -25,19 +26,15 @@ class ThumbnailService {
 
       if (await File(thumbPath).exists()) return thumbPath;
 
-      // Queue if too many are running simultaneously
+      // FIX #3: Park in the queue and truly wait until a slot is freed.
       if (_active >= _maxConcurrent) {
         final completer = Completer<void>();
-        _queue.add(() {
-          completer.complete();
-          return completer.future;
-        });  // complete() is called when a slot frees
+        _queue.add(completer);
         await completer.future;
       }
 
       _active++;
       try {
-        // ✅ Called on main isolate — platform channels work here
         final result = await VideoThumbnail.thumbnailFile(
           video:         videoPath,
           thumbnailPath: thumbPath,
@@ -52,13 +49,12 @@ class ThumbnailService {
         return result;
       } finally {
         _active--;
+        // Signal the next queued caller that a slot is now free.
         if (_queue.isNotEmpty) {
-          final next = _queue.removeAt(0);
-          next();
+          _queue.removeAt(0).complete();
         }
       }
     } catch (e, st) {
-      // Now you'll see the REAL error
       debugPrint('⚠️ Thumbnail error for $videoPath\n$e\n$st');
       return null;
     }

@@ -1,8 +1,13 @@
+// ignore_for_file: unnecessary_underscores
+
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart' hide DeviceType;
 import 'package:media_player/features/home/presentation/pages/navbar.dart';
 
 import '../../../../core/widgets/responsive_builder.dart';
+import '../../../audio_player/bloc/audio_bloc.dart';
+import '../../../audio_player/bloc/audio_state.dart';
 import '../../../audio_player/presentation/widgets/audio_mini_player.dart';
 import '../../../playlist/domain/entities/media_item.dart';
 import '../../../playlist/presentation/pages/playlist_page.dart';
@@ -18,7 +23,7 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  int        _index       = 0;
+  int        _index         = 0;
   MediaType? _libraryFilter; // null = show all
 
   static const _destinations = [
@@ -44,32 +49,15 @@ class _HomePageState extends State<HomePage> {
     ),
   ];
 
-  @override
-  Widget build(BuildContext context) {
-    return ResponsiveBuilder(
-      builder: (context, device) {
-        return device == DeviceType.phone
-            ? _PhoneShell(index: _index)
-            : _TabletShell(index: _index);
-      },
-    );
-  }
-
-  /// Called both by the bottom nav bar and by HomeTab's quick-action cards.
-  void _onNav(int i, {MediaType? filter}) {
-    setState(() {
-      _index        = i;
-      _libraryFilter = filter; // null when tapping nav directly
-    });
-  }
-
-  Widget get _body {
-    return switch (_index) {
+  // FIX #4: _body is now a method that receives the current index and filter
+  // explicitly instead of relying on the getter closing over mutable state.
+  Widget _buildBody(int index, MediaType? filter) {
+    return switch (index) {
       0 => HomeTab(
            onNavigateToTab: (tabIndex, {filter}) =>
                _onNav(tabIndex, filter: filter),
          ),
-      1 => PlaylistPage(initialFilter: _libraryFilter),
+      1 => PlaylistPage(initialFilter: filter),
       2 => const FavoritesTab(),
       3 => const SettingsTab(),
       _ => HomeTab(
@@ -79,43 +67,108 @@ class _HomePageState extends State<HomePage> {
     };
   }
 
-  // ── Phone : bottom nav bar ────────────────────────────────
+  /// Called by the bottom nav bar AND by HomeTab's quick-action cards.
+  void _onNav(int i, {MediaType? filter}) {
+    setState(() {
+      _index         = i;
+      _libraryFilter = filter;
+    });
+  }
 
-  Widget _PhoneShell({required int index}) {
+  @override
+  Widget build(BuildContext context) {
+    return ResponsiveBuilder(
+      builder: (context, device) {
+        final body = _buildBody(_index, _libraryFilter);
+        return device == DeviceType.phone
+            ? _PhoneShell(
+                index:   _index,
+                body:    body,
+                onNav:   _onNav,
+              )
+            : _TabletShell(
+                index:       _index,
+                body:        body,
+                destinations: _destinations,
+                onNav:       _onNav,
+              );
+      },
+    );
+  }
+}
+
+// ── Phone shell ───────────────────────────────────────────────
+// FIX #1: AudioMiniPlayer is rendered ONLY here (and in _TabletShell).
+// FIX #2: Mini player is positioned above the nav bar using a Column
+//         with intrinsic sizing, respecting SafeArea insets properly.
+
+class _PhoneShell extends StatelessWidget {
+  const _PhoneShell({
+    required this.index,
+    required this.body,
+    required this.onNav,
+  });
+
+  final int                                         index;
+  final Widget                                      body;
+  final void Function(int, {MediaType? filter})     onNav;
+
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
-      extendBody: true, // lets content flow under translucent nav bar
-      body: Stack(
+      // FIX #2: extendBody lets content scroll behind the translucent nav bar
+      // but we no longer rely on it for mini player placement.
+      extendBody: false,
+      body: body,
+      // FIX #1 & #2: Mini player sits between the body and the nav bar
+      // inside the Scaffold's bottomNavigationBar slot using a Column.
+      // This approach respects SafeArea automatically and cannot overlap.
+      bottomNavigationBar: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Positioned.fill(child: _body),
-          // Positioned(
-          //   left:   0,
-          //   right:  0,
-          //   bottom: kBottomNavigationBarHeight + 8,
-          //   // child:  const AudioMiniPlayer(),
-          // ),
+          // Mini player — only visible when audio is playing.
+          BlocBuilder<AudioBloc, AudioState>(
+            builder: (context, state) {
+              if (state is! AudioReady) return const SizedBox.shrink();
+              return const AudioMiniPlayer();
+            },
+          ),
+          // Bottom nav bar.
+          AdvancedNavBar(
+            selectedIndex:        index,
+            onDestinationSelected: (i) => onNav(i),
+          ),
         ],
-      ),
-      bottomNavigationBar: AdvancedNavBar(
-        selectedIndex: index,
-        onDestinationSelected: (i) => _onNav(i),
       ),
     );
   }
+}
 
+// ── Tablet shell ──────────────────────────────────────────────
 
+class _TabletShell extends StatelessWidget {
+  const _TabletShell({
+    required this.index,
+    required this.body,
+    required this.destinations,
+    required this.onNav,
+  });
 
+  final int                                          index;
+  final Widget                                       body;
+  final List<NavigationDestination>                  destinations;
+  final void Function(int, {MediaType? filter})      onNav;
 
-  // ── Tablet : side nav rail ────────────────────────────────
-
-  Widget _TabletShell({required int index}) {
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
       body: Row(
         children: [
           NavigationRail(
-            selectedIndex: index,
-            onDestinationSelected: (i) => _onNav(i),
-            labelType: NavigationRailLabelType.all,
-            destinations: _destinations
+            selectedIndex:         index,
+            onDestinationSelected: (i) => onNav(i),
+            labelType:             NavigationRailLabelType.all,
+            destinations: destinations
                 .map((d) => NavigationRailDestination(
                       icon:         d.icon,
                       selectedIcon: d.selectedIcon,
@@ -127,8 +180,14 @@ class _HomePageState extends State<HomePage> {
           Expanded(
             child: Column(
               children: [
-                Expanded(child: _body),
-                const AudioMiniPlayer(),
+                Expanded(child: body),
+                // FIX #1: Mini player rendered once, only here on tablet.
+                BlocBuilder<AudioBloc, AudioState>(
+                  builder: (context, state) {
+                    if (state is! AudioReady) return const SizedBox.shrink();
+                    return const AudioMiniPlayer();
+                  },
+                ),
                 SizedBox(height: 8.h),
               ],
             ),

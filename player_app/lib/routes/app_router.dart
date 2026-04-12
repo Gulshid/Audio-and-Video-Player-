@@ -1,14 +1,16 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
-import '../features/audio_player/bloc/audio_bloc.dart';
-import '../features/audio_player/bloc/audio_state.dart';
 import '../features/audio_player/presentation/pages/audio_player_page.dart';
-import '../features/audio_player/presentation/widgets/audio_mini_player.dart';
 import '../features/home/presentation/pages/home_page.dart';
 import '../features/playlist/domain/entities/media_item.dart';
 import '../features/video_player/presentation/pages/video_player_page.dart';
+
+// FIX #1 & #2: The _AppShell that previously rendered AudioMiniPlayer here
+// has been removed. The mini player is now rendered exclusively inside
+// HomePage's _PhoneShell and _TabletShell, which already have access to the
+// correct bottom offset (respecting the nav bar height and SafeArea insets).
+// This eliminates the double-render and the hardcoded `bottom: 56` bug.
 
 abstract final class AppRouter {
   static GoRouter create() {
@@ -16,20 +18,13 @@ abstract final class AppRouter {
       initialLocation: '/home',
       debugLogDiagnostics: false,
       routes: [
-
-        // ── Shell: wraps all main pages with mini player ──
-        ShellRoute(
-          builder: (context, state, child) => _AppShell(child: child),
-          routes: [
-            GoRoute(
-              path:    '/home',
-              name:    'home',
-              builder: (_, __) => const HomePage(),
-            ),
-          ],
+        GoRoute(
+          path:    '/home',
+          name:    'home',
+          builder: (_, __) => const HomePage(),
         ),
 
-        // ── Full-screen players (outside shell, no mini player) ──
+        // ── Full-screen players (no mini player) ──────────
         GoRoute(
           path: '/audio-player',
           name: 'audio-player',
@@ -63,40 +58,6 @@ abstract final class AppRouter {
           },
         ),
       ],
-    );
-  }
-}
-
-// ── Shell scaffold: hosts the mini player above every main page ──
-class _AppShell extends StatelessWidget {
-  const _AppShell({required this.child});
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      // 'child' is whichever ShellRoute page is active (HomePage, etc.)
-      // HomePage already has its own Scaffold with bottom nav — so we
-      // use a Stack + Positioned to float the mini player above it.
-      body: Stack(
-        children: [
-          child,
-
-          // Mini player floats above the bottom nav bar
-          Positioned(
-            left:   0,
-            right:  0,
-            // 56 = typical BottomNavigationBar height; adjust if yours differs
-            bottom: 56,
-            child: BlocBuilder<AudioBloc, AudioState>(
-              builder: (context, state) {
-                if (state is! AudioReady) return const SizedBox.shrink();
-                return const AudioMiniPlayer();
-              },
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

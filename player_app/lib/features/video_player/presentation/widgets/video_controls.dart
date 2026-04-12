@@ -9,14 +9,12 @@ import '../../bloc/video_state.dart';
 
 /// Pure controls overlay — NO internal visibility timer or GestureDetector.
 /// Visibility is owned entirely by VideoPlayerPage (_showControls + Timer).
-/// This widget just renders the UI when it is told to be visible.
 class VideoControls extends StatelessWidget {
   const VideoControls({super.key});
 
   @override
   Widget build(BuildContext context) {
     return BlocBuilder<VideoBloc, VideoState>(
-      // Only rebuild when the relevant fields change, not on every position tick
       buildWhen: (prev, next) {
         if (prev.runtimeType != next.runtimeType) return true;
         if (next is! VideoReady) return true;
@@ -48,15 +46,12 @@ class VideoControls extends StatelessWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              // ── Top bar ────────────────────────────────────────────────
               _TopBar(
                 title:        state.item.title,
                 isFullscreen: state.isFullscreen,
                 onFullscreen: () =>
                     bloc.add(const VideoToggleFullscreenEvent()),
               ),
-
-              // ── Centre play / skip ─────────────────────────────────────
               _CenterControls(
                 isPlaying: state.isPlaying,
                 onPlay:    () => bloc.add(const VideoPlayEvent()),
@@ -64,10 +59,8 @@ class VideoControls extends StatelessWidget {
                 onBack:    () => bloc.add(const VideoSkipBackwardEvent()),
                 onForward: () => bloc.add(const VideoSkipForwardEvent()),
               ),
-
-              // ── Bottom seek + time ─────────────────────────────────────
-              // Separate BlocBuilder so only the seek bar re-renders on
-              // every position tick — the rest of the UI stays calm.
+              // FIX #5: Separate BlocBuilder so only the seek bar re-renders
+              // on every position tick. Seek is dispatched on onChangeEnd only.
               _SeekSection(bloc: bloc),
             ],
           ),
@@ -77,9 +70,7 @@ class VideoControls extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Top bar
-// ─────────────────────────────────────────────────────────────────────────────
+// ── Top bar ───────────────────────────────────────────────────
 
 class _TopBar extends StatelessWidget {
   const _TopBar({
@@ -128,9 +119,7 @@ class _TopBar extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Centre controls
-// ─────────────────────────────────────────────────────────────────────────────
+// ── Centre controls ───────────────────────────────────────────
 
 class _CenterControls extends StatelessWidget {
   const _CenterControls({
@@ -148,7 +137,7 @@ class _CenterControls extends StatelessWidget {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        _CircleBtn(icon: Icons.replay_10_rounded, onTap: onBack,    size: 36.r),
+        _CircleBtn(icon: Icons.replay_10_rounded,  onTap: onBack,    size: 36.r),
         SizedBox(width: 24.w),
         _CircleBtn(
           icon:  isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
@@ -196,13 +185,22 @@ class _CircleBtn extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Seek section — own BlocBuilder so position ticks don't rebuild the whole tree
-// ─────────────────────────────────────────────────────────────────────────────
+// ── Seek section ──────────────────────────────────────────────
+// FIX #5: Uses a StatefulWidget to track drag state locally so we
+// can show the drag thumb position while scrubbing, then only fire
+// a single VideoSeekEvent on onChangeEnd — not on every pixel.
 
-class _SeekSection extends StatelessWidget {
+class _SeekSection extends StatefulWidget {
   const _SeekSection({required this.bloc});
   final VideoBloc bloc;
+
+  @override
+  State<_SeekSection> createState() => _SeekSectionState();
+}
+
+class _SeekSectionState extends State<_SeekSection> {
+  bool   _dragging  = false;
+  double _dragValue = 0;
 
   @override
   Widget build(BuildContext context) {
@@ -214,6 +212,8 @@ class _SeekSection extends StatelessWidget {
         final curMs = state.position.inMilliseconds
             .toDouble()
             .clamp(0.0, maxMs > 0 ? maxMs : 1.0);
+
+        final sliderVal = _dragging ? _dragValue : curMs;
 
         return Padding(
           padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 8.h),
@@ -231,12 +231,24 @@ class _SeekSection extends StatelessWidget {
                       RoundSliderThumbShape(enabledThumbRadius: 6.r),
                 ),
                 child: Slider(
-                  value: curMs,
+                  value: sliderVal,
                   min:   0,
                   max:   maxMs > 0 ? maxMs : 1.0,
-                  onChanged: (v) => bloc.add(
-                    VideoSeekEvent(Duration(milliseconds: v.toInt())),
-                  ),
+                  // FIX #5: onChanged only updates local drag preview —
+                  // NO seek event fired here (was firing hundreds per drag).
+                  onChanged: (v) {
+                    setState(() {
+                      _dragging  = true;
+                      _dragValue = v;
+                    });
+                  },
+                  // FIX #5: One single seek event when the user lifts finger.
+                  onChangeEnd: (v) {
+                    setState(() => _dragging = false);
+                    widget.bloc.add(
+                      VideoSeekEvent(Duration(milliseconds: v.toInt())),
+                    );
+                  },
                 ),
               ),
               Padding(
@@ -245,9 +257,18 @@ class _SeekSection extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(
-                      DurationFormatter.format(state.position),
+                      DurationFormatter.format(
+                        _dragging
+                            ? Duration(milliseconds: _dragValue.toInt())
+                            : state.position,
+                      ),
                       style: TextStyle(
-                          color: Colors.white70, fontSize: 11.sp),
+                        color: _dragging ? Colors.white : Colors.white70,
+                        fontSize:   11.sp,
+                        fontWeight: _dragging
+                            ? FontWeight.w700
+                            : FontWeight.w400,
+                      ),
                     ),
                     GestureDetector(
                       onTap: () => _pickSpeed(context, state),
@@ -292,7 +313,7 @@ class _SeekSection extends StatelessWidget {
                       color: Theme.of(context).colorScheme.primary)
                   : null,
               onTap: () {
-                bloc.add(VideoSetSpeedEvent(s));
+                widget.bloc.add(VideoSetSpeedEvent(s));
                 Navigator.pop(context);
               },
             ),
