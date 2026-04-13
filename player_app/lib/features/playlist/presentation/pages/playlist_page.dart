@@ -312,14 +312,27 @@ class _PlaylistPageState extends State<PlaylistPage>
 
 // ── Reusable list widget ──────────────────────────────────────
 
-class _MediaList extends StatelessWidget {
+class _MediaList extends StatefulWidget {
   const _MediaList({required this.items, required this.showEmpty});
   final List<MediaItem> items;
   final String          showEmpty;
 
   @override
+  State<_MediaList> createState() => _MediaListState();
+}
+
+class _MediaListState extends State<_MediaList>
+    with AutomaticKeepAliveClientMixin {
+
+  // ✅ Keeps this tab alive when user switches away
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
   Widget build(BuildContext context) {
-    if (items.isEmpty) {
+    super.build(context); // required by the mixin
+
+    if (widget.items.isEmpty) {
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -331,53 +344,49 @@ class _MediaList extends StatelessWidget {
                     .onSurface
                     .withOpacity(.2)),
             SizedBox(height: 12.h),
-            Text(showEmpty,
+            Text(widget.showEmpty,
                 style: Theme.of(context).textTheme.bodyMedium),
           ],
         ),
       );
     }
 
-    // Replace your ReorderableListView.builder in _MediaList
-
-        return ReorderableListView.builder(
-          // Bottom padding: mini player height + nav bar height + safe gap,
-          // so the last item is never hidden behind the floating mini player.
-          padding: EdgeInsets.only(
-            left:   12.w,
-            right:  12.w,
-            top:    8.h,
-            bottom: 80.h + 10.h,
-          ),
-          itemCount:                items.length,
-          buildDefaultDragHandles:  false,   // ← kills the long-press conflict
-          onReorder: (o, n) => context
+    return ReorderableListView.builder(
+      padding: EdgeInsets.only(
+        left:   12.w,
+        right:  12.w,
+        top:    8.h,
+        bottom: 80.h + 10.h,
+      ),
+      itemCount:               widget.items.length,
+      buildDefaultDragHandles: false,
+      onReorder: (o, n) => context
+          .read<PlaylistBloc>()
+          .add(PlaylistReorderEvent(o, n)),
+      itemBuilder: (context, i) {
+        final item = widget.items[i];
+        return MediaListTile(
+          key:           ValueKey(item.id),
+          item:          item,
+          reorderIndex:  i,
+          onTap:         () => _play(context, item, widget.items),
+          onFavoriteTap: () => context
               .read<PlaylistBloc>()
-              .add(PlaylistReorderEvent(o, n)),
-          itemBuilder: (context, i) {
-            final item = items[i];
-            return MediaListTile(
-              key:           ValueKey(item.id),
-              item:          item,
-              reorderIndex:  i,
-              onTap:         () => _play(context, item, items),
-              onFavoriteTap: () => context
-                  .read<PlaylistBloc>()
-                  .add(PlaylistToggleFavoriteEvent(item.id)),
-              onDelete: () => context
-                  .read<PlaylistBloc>()
-                  .add(PlaylistRemoveItemEvent(item.id)),
-            );
-          },
+              .add(PlaylistToggleFavoriteEvent(item.id)),
+          onDelete: () => context
+              .read<PlaylistBloc>()
+              .add(PlaylistRemoveItemEvent(item.id)),
         );
+      },
+    );
   }
 
   void _play(BuildContext context, MediaItem item, List<MediaItem> queue) {
     if (item.type == MediaType.audio) {
-      context
-          .read<AudioBloc>()
-          .add(AudioPlayEvent(item, playlist: queue));
-      Future.microtask(() { if (context.mounted) context.push('/audio-player', extra: item); });
+      context.read<AudioBloc>().add(AudioPlayEvent(item, playlist: queue));
+      Future.microtask(() {
+        if (context.mounted) context.push('/audio-player', extra: item);
+      });
     } else {
       context.push('/video-player', extra: item);
     }
