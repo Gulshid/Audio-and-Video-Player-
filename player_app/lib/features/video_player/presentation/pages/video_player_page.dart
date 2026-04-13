@@ -29,18 +29,10 @@ class _SeekRipple {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// VideoPlayerPage
+// Fit mode enum — source of truth shared between page and controls.
+// Defined here so video_player_page.dart is the single import point.
 // ─────────────────────────────────────────────────────────────────────────────
 
-class VideoPlayerPage extends StatefulWidget {
-  const VideoPlayerPage({required this.item, super.key});
-  final MediaItem item;
-
-  @override
-  State<VideoPlayerPage> createState() => _VideoPlayerPageState();
-}
-
-// Fit mode enum — shared between page and controls
 enum VideoFitMode { fit, fill, stretch }
 
 extension VideoFitModeX on VideoFitMode {
@@ -66,29 +58,45 @@ extension VideoFitModeX on VideoFitMode {
       };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// VideoPlayerPage
+// ─────────────────────────────────────────────────────────────────────────────
+
+class VideoPlayerPage extends StatefulWidget {
+  const VideoPlayerPage({required this.item, super.key});
+  final MediaItem item;
+
+  @override
+  State<VideoPlayerPage> createState() => _VideoPlayerPageState();
+}
+
 class _VideoPlayerPageState extends State<VideoPlayerPage> {
   // ── Controls visibility ───────────────────────────────────────────────────
-  bool _showControls = true;
+  bool   _showControls = true;
   Timer? _hideTimer;
 
   // ── Lock screen ───────────────────────────────────────────────────────────
   bool _locked = false;
 
-  // ── Fit mode — lifted here so _VideoSurface can use it ───────────────────
+  // ── Fit mode — lifted here so _VideoSurface can apply it to the player ───
+  // BUG FIX: this is the single source of truth for fit mode.  Previously,
+  // VideoControls held its own local copy that it never propagated back, so
+  // clicking the fit button only changed the button icon and had no effect on
+  // the actual BoxFit used to render the video.
   VideoFitMode _fitMode = VideoFitMode.fit;
 
   void _cycleFitMode() => setState(() => _fitMode = _fitMode.next);
 
   // ── Seek ripple ───────────────────────────────────────────────────────────
   _SeekRipple? _seekRipple;
-  Timer? _rippleTimer;
+  Timer?       _rippleTimer;
 
   // ── Horizontal drag seek ──────────────────────────────────────────────────
-  bool _horizontalDragging = false;
-  double _dragSeekMs = 0;
+  bool   _horizontalDragging = false;
+  double _dragSeekMs  = 0;
   double _dragStartMs = 0;
 
-  late final VideoBloc _videoBloc;
+  late final VideoBloc    _videoBloc;
   late final PlaylistBloc _playlistBloc;
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────
@@ -96,7 +104,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
   @override
   void initState() {
     super.initState();
-    _videoBloc = context.read<VideoBloc>();
+    _videoBloc    = context.read<VideoBloc>();
     _playlistBloc = context.read<PlaylistBloc>();
     _videoBloc.add(VideoInitializeEvent(widget.item));
     _applyImmersiveMode();
@@ -131,38 +139,34 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
   // ── Controls visibility ───────────────────────────────────────────────────
 
   void _onVideoTap() {
-  if (!mounted) return;
-  if (_showControls) {
-    // Controls visible → hide immediately, cancel pending timer
-    _hideTimer?.cancel();
-    setState(() => _showControls = false);
-  } else {
-    // Controls hidden → show and schedule auto-hide
-    setState(() => _showControls = true);
+    if (!mounted) return;
+    if (_showControls) {
+      _hideTimer?.cancel();
+      setState(() => _showControls = false);
+    } else {
+      setState(() => _showControls = true);
+      _scheduleHide();
+    }
+  }
+
+  void _onControlInteraction() {
+    if (!mounted) return;
+    if (!_showControls) setState(() => _showControls = true);
     _scheduleHide();
   }
-}
-
-void _onControlInteraction() {
-  if (!mounted) return;
-  if (!_showControls) setState(() => _showControls = true);
-  _scheduleHide(); // always reset the 2s countdown
-}
 
   void _scheduleHide() {
     _hideTimer?.cancel();
-    _hideTimer = Timer(const Duration(seconds: 2), () {
+    _hideTimer = Timer(const Duration(seconds: 3), () {
       if (mounted) setState(() => _showControls = false);
     });
   }
-
-  
 
   // ── Lock ──────────────────────────────────────────────────────────────────
 
   void _toggleLock() {
     setState(() {
-      _locked = !_locked;
+      _locked       = !_locked;
       _showControls = true;
     });
     _scheduleHide();
@@ -195,7 +199,7 @@ void _onControlInteraction() {
     if (state is! VideoReady) return;
     _horizontalDragging = true;
     _dragStartMs = state.position.inMilliseconds.toDouble();
-    _dragSeekMs = _dragStartMs;
+    _dragSeekMs  = _dragStartMs;
     _onControlInteraction();
   }
 
@@ -212,98 +216,97 @@ void _onControlInteraction() {
   void _onHorizontalDragEnd(DragEndDetails _) {
     if (!_horizontalDragging) return;
     _horizontalDragging = false;
-    _videoBloc.add(VideoSeekEvent(Duration(milliseconds: _dragSeekMs.toInt())));
+    _videoBloc.add(
+        VideoSeekEvent(Duration(milliseconds: _dragSeekMs.toInt())));
     setState(() {});
   }
 
   // ── Build ─────────────────────────────────────────────────────────────────
 
- @override
-Widget build(BuildContext context) {
-  return PopScope(
-    onPopInvokedWithResult: (didPop, _) {
-      if (didPop) _restoreSystemUI();
-    },
-    child: BlocListener<VideoBloc, VideoState>(
-      listenWhen: (prev, curr) =>
-          prev is VideoReady &&
-          curr is VideoReady &&
-          (prev as VideoReady).isFullscreen !=
-              (curr as VideoReady).isFullscreen,
-      listener: (context, state) {
-        if (state is! VideoReady) return;
-        if (state.isFullscreen) {
-          // Lock to landscape
-          SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-          SystemChrome.setPreferredOrientations([
-            DeviceOrientation.landscapeLeft,
-            DeviceOrientation.landscapeRight,
-          ]);
-        } else {
-          // Restore portrait + landscape allowed
-          SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-          SystemChrome.setPreferredOrientations([
-            DeviceOrientation.landscapeLeft,
-            DeviceOrientation.landscapeRight,
-            DeviceOrientation.portraitUp,
-          ]);
-        }
+  @override
+  Widget build(BuildContext context) {
+    return PopScope(
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) _restoreSystemUI();
       },
-      child: BlocListener<PlaylistBloc, PlaylistState>(
-        listenWhen: (prev, next) {
-          if (next is! PlaylistLoaded) return false;
-          if (prev is! PlaylistLoaded) return next.nowPlaying != null;
-          return prev.nowPlaying != next.nowPlaying &&
-              next.nowPlaying != null;
-        },
+      child: BlocListener<VideoBloc, VideoState>(
+        listenWhen: (prev, curr) =>
+            prev is VideoReady &&
+            curr is VideoReady &&
+            (prev as VideoReady).isFullscreen !=
+                (curr as VideoReady).isFullscreen,
         listener: (context, state) {
-          if (state is! PlaylistLoaded) return;
-          final item = state.nowPlaying;
-          if (item == null) return;
-          _playlistBloc.add(const PlaylistConsumeNowPlayingEvent());
-          _videoBloc.add(VideoInitializeEvent(item));
+          if (state is! VideoReady) return;
+          if (state.isFullscreen) {
+            SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+            SystemChrome.setPreferredOrientations([
+              DeviceOrientation.landscapeLeft,
+              DeviceOrientation.landscapeRight,
+            ]);
+          } else {
+            SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+            SystemChrome.setPreferredOrientations([
+              DeviceOrientation.landscapeLeft,
+              DeviceOrientation.landscapeRight,
+              DeviceOrientation.portraitUp,
+            ]);
+          }
         },
-        child: Scaffold(
-          backgroundColor: Colors.black,
-          body: BlocBuilder<VideoBloc, VideoState>(
-            builder: (context, state) {
-              if (state is VideoInitial) return const SizedBox.expand();
-              if (state is VideoLoading) {
-                return const Center(
-                  child: CircularProgressIndicator(color: Colors.white),
-                );
-              }
-              if (state is VideoError) {
-                return _ErrorView(message: state.message);
-              }
-              if (state is VideoReady) {
-                return _VideoSurface(
-                  state: state,
-                  showControls: _showControls,
-                  locked: _locked,
-                  fitMode: _fitMode,
-                  seekRipple: _seekRipple,
-                  horizontalDragging: _horizontalDragging,
-                  dragSeekMs: _dragSeekMs,
-                  onVideoTap: _onVideoTap,
-                  onControlInteraction: _onControlInteraction,
-                  onToggleLock: _toggleLock,
-                  onCycleFitMode: _cycleFitMode,
-                  onDoubleTapLeft: () => _doubleTapSeek(_SeekSide.left),
-                  onDoubleTapRight: () => _doubleTapSeek(_SeekSide.right),
-                  onHDragStart: _onHorizontalDragStart,
-                  onHDragUpdate: _onHorizontalDragUpdate,
-                  onHDragEnd: _onHorizontalDragEnd,
-                );
-              }
-              return const SizedBox.expand();
-            },
+        child: BlocListener<PlaylistBloc, PlaylistState>(
+          listenWhen: (prev, next) {
+            if (next is! PlaylistLoaded) return false;
+            if (prev is! PlaylistLoaded) return next.nowPlaying != null;
+            return prev.nowPlaying != next.nowPlaying &&
+                next.nowPlaying != null;
+          },
+          listener: (context, state) {
+            if (state is! PlaylistLoaded) return;
+            final item = state.nowPlaying;
+            if (item == null) return;
+            _playlistBloc.add(const PlaylistConsumeNowPlayingEvent());
+            _videoBloc.add(VideoInitializeEvent(item));
+          },
+          child: Scaffold(
+            backgroundColor: Colors.black,
+            body: BlocBuilder<VideoBloc, VideoState>(
+              builder: (context, state) {
+                if (state is VideoInitial) return const SizedBox.expand();
+                if (state is VideoLoading) {
+                  return const Center(
+                    child: CircularProgressIndicator(color: Colors.white),
+                  );
+                }
+                if (state is VideoError) {
+                  return _ErrorView(message: state.message);
+                }
+                if (state is VideoReady) {
+                  return _VideoSurface(
+                    state:               state,
+                    showControls:        _showControls,
+                    locked:              _locked,
+                    fitMode:             _fitMode,
+                    seekRipple:          _seekRipple,
+                    horizontalDragging:  _horizontalDragging,
+                    dragSeekMs:          _dragSeekMs,
+                    onVideoTap:          _onVideoTap,
+                    onControlInteraction: _onControlInteraction,
+                    onToggleLock:        _toggleLock,
+                    onCycleFitMode:      _cycleFitMode,
+                    onDoubleTapLeft:     () => _doubleTapSeek(_SeekSide.left),
+                    onDoubleTapRight:    () => _doubleTapSeek(_SeekSide.right),
+                    onHDragStart:        _onHorizontalDragStart,
+                    onHDragUpdate:       _onHorizontalDragUpdate,
+                    onHDragEnd:          _onHorizontalDragEnd,
+                  );
+                }
+                return const SizedBox.expand();
+              },
+            ),
           ),
         ),
       ),
-    ),
-  );
-}
+    );
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -331,21 +334,21 @@ class _VideoSurface extends StatelessWidget {
   });
 
   final VideoReady state;
-  final bool showControls;
-  final bool locked;
+  final bool       showControls;
+  final bool       locked;
   final VideoFitMode fitMode;
   final _SeekRipple? seekRipple;
-  final bool horizontalDragging;
-  final double dragSeekMs;
+  final bool         horizontalDragging;
+  final double       dragSeekMs;
   final VoidCallback onVideoTap;
   final VoidCallback onControlInteraction;
   final VoidCallback onToggleLock;
   final VoidCallback onCycleFitMode;
   final VoidCallback onDoubleTapLeft;
   final VoidCallback onDoubleTapRight;
-  final GestureDragStartCallback onHDragStart;
+  final GestureDragStartCallback  onHDragStart;
   final GestureDragUpdateCallback onHDragUpdate;
-  final GestureDragEndCallback onHDragEnd;
+  final GestureDragEndCallback    onHDragEnd;
 
   @override
   Widget build(BuildContext context) {
@@ -353,13 +356,15 @@ class _VideoSurface extends StatelessWidget {
       children: [
         // ── Video surface ────────────────────────────────────────────────
         GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: onVideoTap,
+          behavior:              HitTestBehavior.opaque,
+          onTap:                 onVideoTap,
           onHorizontalDragStart: onHDragStart,
           onHorizontalDragUpdate: onHDragUpdate,
-          onHorizontalDragEnd: onHDragEnd,
+          onHorizontalDragEnd:   onHDragEnd,
           child: SizedBox.expand(
             child: FittedBox(
+              // BUG FIX: fitMode is now the page-level VideoFitMode so the
+              // boxFit here actually changes when the user cycles the fit button.
               fit: fitMode.boxFit,
               child: SizedBox(
                 width:  state.controller.value.size.width,
@@ -373,17 +378,18 @@ class _VideoSurface extends StatelessWidget {
         // ── Double-tap seek zones ────────────────────────────────────────
         if (!locked) ...[
           _DoubleTapZone(
-            alignment: Alignment.centerLeft,
+            alignment:   Alignment.centerLeft,
             onDoubleTap: onDoubleTapLeft,
           ),
           _DoubleTapZone(
-            alignment: Alignment.centerRight,
+            alignment:   Alignment.centerRight,
             onDoubleTap: onDoubleTapRight,
           ),
         ],
 
         // ── Seek ripple ──────────────────────────────────────────────────
-        if (seekRipple != null) _SeekRippleOverlay(side: seekRipple!.side),
+        if (seekRipple != null)
+          _SeekRippleOverlay(side: seekRipple!.side),
 
         // ── Drag seek overlay ────────────────────────────────────────────
         if (horizontalDragging)
@@ -393,22 +399,32 @@ class _VideoSurface extends StatelessWidget {
           ),
 
         // ── Controls overlay ─────────────────────────────────────────────
+        // BUG FIX: the previous implementation wrapped VideoControls in a
+        // GestureDetector with HitTestBehavior.translucent, which caused
+        // every button press to also fire onVideoTap (on the layer below),
+        // instantly hiding the controls after any interaction.
+        //
+        // The fix: remove the outer GestureDetector entirely.  Instead,
+        // VideoControls itself owns an opaque GestureDetector on its gradient
+        // background that calls onDismiss (= onVideoTap) when the user taps
+        // the empty area.  Button presses are absorbed by the buttons and
+        // never reach the background detector.  The auto-hide timer (3 s)
+        // handles the common case of "controls disappear after inactivity".
         Positioned.fill(
           child: SafeArea(
             child: AnimatedOpacity(
-              opacity: showControls ? 1.0 : 0.0,
+              opacity:  showControls ? 1.0 : 0.0,
               duration: const Duration(milliseconds: 220),
               child: IgnorePointer(
                 ignoring: !showControls,
-                child: GestureDetector(
-                  onTap: onControlInteraction,
-                  behavior: HitTestBehavior.translucent,
-                  child: VideoControls(
-                    locked: locked,
-                    fitMode: fitMode,
-                    onToggleLock: onToggleLock,
-                    onCycleFitMode: onCycleFitMode,
-                  ),
+                child: VideoControls(
+                  locked:        locked,
+                  fitMode:       fitMode,
+                  onToggleLock:  onToggleLock,
+                  onCycleFitMode: onCycleFitMode,
+                  // Tapping the empty gradient background hides controls,
+                  // matching the single-tap toggle on the video surface.
+                  onDismiss:     onVideoTap,
                 ),
               ),
             ),
@@ -425,7 +441,7 @@ class _VideoSurface extends StatelessWidget {
 
 class _DoubleTapZone extends StatelessWidget {
   const _DoubleTapZone({required this.alignment, required this.onDoubleTap});
-  final Alignment alignment;
+  final Alignment    alignment;
   final VoidCallback onDoubleTap;
 
   @override
@@ -436,9 +452,9 @@ class _DoubleTapZone extends StatelessWidget {
         child: SizedBox(
           width: MediaQuery.of(context).size.width * 0.33,
           child: GestureDetector(
-            behavior: HitTestBehavior.translucent,
+            behavior:    HitTestBehavior.translucent,
             onDoubleTap: onDoubleTap,
-            child: const SizedBox.expand(),
+            child:       const SizedBox.expand(),
           ),
         ),
       ),
@@ -466,16 +482,18 @@ class _SeekRippleOverlay extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(
-                isLeft ? Icons.replay_10_rounded : Icons.forward_10_rounded,
+                isLeft
+                    ? Icons.replay_10_rounded
+                    : Icons.forward_10_rounded,
                 color: Colors.white,
-                size: 40.r,
+                size:  40.r,
               ),
               SizedBox(height: 6.h),
               Text(
                 isLeft ? '−10 sec' : '+10 sec',
                 style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 12.sp,
+                  color:      Colors.white,
+                  fontSize:   12.sp,
                   fontWeight: FontWeight.w600,
                 ),
               ),
@@ -492,7 +510,10 @@ class _SeekRippleOverlay extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _DragSeekOverlay extends StatelessWidget {
-  const _DragSeekOverlay({required this.positionMs, required this.durationMs});
+  const _DragSeekOverlay({
+    required this.positionMs,
+    required this.durationMs,
+  });
   final double positionMs;
   final double durationMs;
 
@@ -512,7 +533,7 @@ class _DragSeekOverlay extends StatelessWidget {
       child: Container(
         padding: EdgeInsets.symmetric(horizontal: 24.w, vertical: 14.h),
         decoration: BoxDecoration(
-          color: Colors.black.withOpacity(0.72),
+          color:        Colors.black.withOpacity(0.72),
           borderRadius: BorderRadius.circular(12.r),
         ),
         child: Column(
@@ -521,9 +542,9 @@ class _DragSeekOverlay extends StatelessWidget {
             Text(
               _fmt(pos),
               style: TextStyle(
-                color: Colors.white,
-                fontSize: 28.sp,
-                fontWeight: FontWeight.w700,
+                color:         Colors.white,
+                fontSize:      28.sp,
+                fontWeight:    FontWeight.w700,
                 letterSpacing: 1.5,
               ),
             ),
@@ -531,9 +552,10 @@ class _DragSeekOverlay extends StatelessWidget {
             ClipRRect(
               borderRadius: BorderRadius.circular(2.r),
               child: LinearProgressIndicator(
-                value: durationMs > 0 ? positionMs / durationMs : 0,
+                value:           durationMs > 0 ? positionMs / durationMs : 0,
                 backgroundColor: Colors.white24,
-                valueColor: const AlwaysStoppedAnimation(Colors.white),
+                valueColor:
+                    const AlwaysStoppedAnimation(Colors.white),
                 minHeight: 3,
               ),
             ),
@@ -568,7 +590,7 @@ class _ErrorView extends StatelessWidget {
             Icon(
               Icons.error_outline_rounded,
               color: Colors.redAccent,
-              size: 64.r,
+              size:  64.r,
             ),
             SizedBox(height: 16.h),
             Text(

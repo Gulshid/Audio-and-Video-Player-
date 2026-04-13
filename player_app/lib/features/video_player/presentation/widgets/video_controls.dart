@@ -11,15 +11,10 @@ import '../../bloc/video_event.dart';
 import '../../bloc/video_state.dart';
 import '../pages/video_player_page.dart';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Fit mode — cycles: fit → fill → stretch → fit …
-// ─────────────────────────────────────────────────────────────────────────────
 
 enum _FitMode { fit, fill, stretch }
 
 extension _FitModeX on _FitMode {
-  _FitMode get next => _FitMode.values[(index + 1) % _FitMode.values.length];
-
   IconData get icon => switch (this) {
         _FitMode.fit     => Icons.fit_screen_rounded,
         _FitMode.fill    => Icons.crop_rounded,
@@ -31,17 +26,10 @@ extension _FitModeX on _FitMode {
         _FitMode.fill    => 'Fill',
         _FitMode.stretch => 'Stretch',
       };
-
-  // ignore: unused_element
-  BoxFit get boxFit => switch (this) {
-        _FitMode.fit     => BoxFit.contain,
-        _FitMode.fill    => BoxFit.cover,
-        _FitMode.stretch => BoxFit.fill,
-      };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// VideoControls — StatefulWidget so it can own _fitMode locally.
+// VideoControls
 // ─────────────────────────────────────────────────────────────────────────────
 
 class VideoControls extends StatefulWidget {
@@ -50,22 +38,37 @@ class VideoControls extends StatefulWidget {
     required this.onToggleLock,
     required this.fitMode,
     required this.onCycleFitMode,
+    /// Called when the user taps the translucent background of the controls
+    /// overlay (i.e. anywhere that isn't a button).  The page uses this to
+    /// dismiss / toggle control visibility so taps never fall through to the
+    /// underlying video-surface GestureDetector.
+    required this.onDismiss,
     super.key,
   });
+
   final VideoFitMode fitMode;
   final VoidCallback onCycleFitMode;
   final bool         locked;
   final VoidCallback onToggleLock;
+  final VoidCallback onDismiss;
 
   @override
   State<VideoControls> createState() => _VideoControlsState();
 }
 
 class _VideoControlsState extends State<VideoControls> {
-  // Fit mode lives here — instant icon update, no BLoC needed.
-  _FitMode _fitMode = _FitMode.fit;
 
-  void _cycleFitMode() => setState(() => _fitMode = _fitMode.next);
+  // ── Map the page-level VideoFitMode → local _FitMode for icon / label ─────
+  // BUG FIX: previously the controls maintained their own local _fitMode state
+  // and called setState() on cycle, but never called widget.onCycleFitMode().
+  // The video surface therefore never received the updated BoxFit and the fit
+  // button had zero effect.  Now the display is driven purely by the parent's
+  // widget.fitMode, and cycling delegates entirely to widget.onCycleFitMode().
+  _FitMode get _displayFit => switch (widget.fitMode) {
+        VideoFitMode.fit     => _FitMode.fit,
+        VideoFitMode.fill    => _FitMode.fill,
+        VideoFitMode.stretch => _FitMode.stretch,
+      };
 
   @override
   Widget build(BuildContext context) {
@@ -88,85 +91,100 @@ class _VideoControlsState extends State<VideoControls> {
         if (next is! VideoReady) return true;
         if (prev is! VideoReady) return true;
         return prev.isPlaying     != next.isPlaying     ||
-                prev.isFullscreen  != next.isFullscreen  ||
-                prev.playbackSpeed != next.playbackSpeed ||
-                prev.isMuted       != next.isMuted       ||
-                prev.volume        != next.volume        ||
-                prev.duration      != next.duration      ||
-                prev.hasEnded      != next.hasEnded;
+               prev.isFullscreen  != next.isFullscreen  ||
+               prev.playbackSpeed != next.playbackSpeed ||
+               prev.isMuted       != next.isMuted       ||
+               prev.volume        != next.volume        ||
+               prev.duration      != next.duration      ||
+               prev.hasEnded      != next.hasEnded;
       },
       builder: (context, state) {
         if (state is! VideoReady) return const SizedBox.shrink();
         final bloc         = context.read<VideoBloc>();
         final playlistBloc = context.read<PlaylistBloc>();
 
-        // Read playlist once to decide if next/prev are reachable.
-        // We use read() deliberately — the controls don't need to rebuild
-        // every time the playlist changes, only when video state changes.
         final playlistState = playlistBloc.state;
         final multiItem = playlistState is PlaylistLoaded &&
             playlistState.items.length > 1;
 
-        return Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin:  Alignment.topCenter,
-              end:    Alignment.bottomCenter,
-              colors: [
-                Color(0xCC000000),
-                Color(0x00000000),
-                Color(0x00000000),
-                Color(0xCC000000),
-              ],
-              stops: [0.0, 0.28, 0.65, 1.0],
-            ),
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              // ── Top bar ──────────────────────────────────────────────
-              _TopBar(
-                title:        state.item.title,
-                isFullscreen: state.isFullscreen,
-                locked:       widget.locked,
-                onFullscreen: () =>
-                    bloc.add(const VideoToggleFullscreenEvent()),
-                onToggleLock: widget.onToggleLock,
-              ),
-
-              // ── Centre controls ───────────────────────────────────────
-              _CenterControls(
-                isPlaying:  state.isPlaying,
-                hasEnded:   state.hasEnded,
-                multiItem:  multiItem,
-                onPlay:     () => bloc.add(const VideoPlayEvent()),
-                onPause:    () => bloc.add(const VideoPauseEvent()),
-                onBack:     () => bloc.add(const VideoSkipBackwardEvent()),
-                onForward:  () => bloc.add(const VideoSkipForwardEvent()),
-                onPrevious: () => playlistBloc
-                    .add(PlaylistPreviousEvent(state.item.id)),
-                onNext:     () => playlistBloc
-                    .add(PlaylistNextEvent(state.item.id)),
-              ),
-
-              // ── Bottom: seek + action strip ───────────────────────────
-              Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _SeekSection(bloc: bloc),
-                  // Pass individual fields so _ActionStrip always has fresh
-                  // values and never holds a stale state snapshot.
-                  _ActionStrip(
-                    isMuted:       state.isMuted,
-                    volume:        state.volume,
-                    playbackSpeed: state.playbackSpeed,
-                    fitMode:       _fitMode,
-                    bloc:          bloc,
-                    onCycleFit:    _cycleFitMode,
-                  ),
+        // ── BUG FIX: wrap in GestureDetector with opaque behaviour ──────────
+        // Previously the controls overlay used HitTestBehavior.translucent in
+        // _VideoSurface, so every button press also fired the underlying
+        // onVideoTap callback, instantly hiding the controls after any
+        // interaction.  Now the gradient container itself absorbs taps:
+        //   • Tapping a button  → Flutter delivers to the inner GestureDetector
+        //     (the button); the background GestureDetector does NOT fire.
+        //   • Tapping the empty gradient area → background GestureDetector
+        //     fires widget.onDismiss, letting the page toggle visibility.
+        //   • The video-surface GestureDetector is never reached while controls
+        //     are visible because IgnorePointer + this opaque detector block it.
+        return GestureDetector(
+          onTap: widget.onDismiss,
+          behavior: HitTestBehavior.opaque,
+          child: Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin:  Alignment.topCenter,
+                end:    Alignment.bottomCenter,
+                colors: [
+                  Color(0xCC000000),
+                  Color(0x00000000),
+                  Color(0x00000000),
+                  Color(0xCC000000),
                 ],
+                stops: [0.0, 0.28, 0.65, 1.0],
               ),
-            ],
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                // ── Top bar ────────────────────────────────────────────────
+                _TopBar(
+                  title:        state.item.title,
+                  isFullscreen: state.isFullscreen,
+                  locked:       widget.locked,
+                  onFullscreen: () =>
+                      bloc.add(const VideoToggleFullscreenEvent()),
+                  onToggleLock: widget.onToggleLock,
+                ),
+
+                // ── Centre controls ────────────────────────────────────────
+                _CenterControls(
+                  isPlaying:  state.isPlaying,
+                  hasEnded:   state.hasEnded,
+                  multiItem:  multiItem,
+                  onPlay:     () => bloc.add(const VideoPlayEvent()),
+                  onPause:    () => bloc.add(const VideoPauseEvent()),
+                  onBack:     () => bloc.add(const VideoSkipBackwardEvent()),
+                  onForward:  () => bloc.add(const VideoSkipForwardEvent()),
+                  onPrevious: () => playlistBloc
+                      .add(PlaylistPreviousEvent(state.item.id)),
+                  onNext:     () => playlistBloc
+                      .add(PlaylistNextEvent(state.item.id)),
+                ),
+
+                // ── Bottom: seek + action strip ────────────────────────────
+                Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _SeekSection(bloc: bloc),
+                    _ActionStrip(
+                      isMuted:       state.isMuted,
+                      volume:        state.volume,
+                      playbackSpeed: state.playbackSpeed,
+                      // BUG FIX: was passing a local _fitMode that was never
+                      // synced with the parent — now derived from widget.fitMode.
+                      fitMode:       _displayFit,
+                      bloc:          bloc,
+                      // BUG FIX: was calling local setState which updated the
+                      // local icon but never told the page to change BoxFit.
+                      // Now delegates directly to the parent callback.
+                      onCycleFit:    widget.onCycleFitMode,
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         );
       },
@@ -281,7 +299,7 @@ class _CenterControls extends StatelessWidget {
 
   final bool         isPlaying;
   final bool         hasEnded;
-  final bool         multiItem;   // false when playlist has only 1 item
+  final bool         multiItem;
   final VoidCallback onPlay, onPause, onBack, onForward;
   final VoidCallback onPrevious, onNext;
 
@@ -290,7 +308,6 @@ class _CenterControls extends StatelessWidget {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        // Previous track
         _NavBtn(
           icon:    Icons.skip_previous_rounded,
           onTap:   onPrevious,
@@ -298,12 +315,8 @@ class _CenterControls extends StatelessWidget {
           size:    36.r,
         ),
         SizedBox(width: 12.w),
-
-        // Skip back 10 s
-        _SeekIconBtn(icon: Icons.replay_10_rounded, onTap: onBack,    size: 42.r),
+        _SeekIconBtn(icon: Icons.replay_10_rounded,   onTap: onBack,    size: 42.r),
         SizedBox(width: 20.w),
-
-        // Play / Pause / Replay
         _PlayPauseBtn(
           isPlaying: isPlaying,
           hasEnded:  hasEnded,
@@ -311,12 +324,8 @@ class _CenterControls extends StatelessWidget {
           onPause:   onPause,
         ),
         SizedBox(width: 20.w),
-
-        // Skip forward 10 s
-        _SeekIconBtn(icon: Icons.forward_10_rounded, onTap: onForward, size: 42.r),
+        _SeekIconBtn(icon: Icons.forward_10_rounded,  onTap: onForward, size: 42.r),
         SizedBox(width: 12.w),
-
-        // Next track
         _NavBtn(
           icon:    Icons.skip_next_rounded,
           onTap:   onNext,
@@ -328,7 +337,6 @@ class _CenterControls extends StatelessWidget {
   }
 }
 
-// Previous / next track — dims when disabled (single-item playlist)
 class _NavBtn extends StatelessWidget {
   const _NavBtn({
     required this.icon,
@@ -362,7 +370,6 @@ class _NavBtn extends StatelessWidget {
   }
 }
 
-// Play / Pause — shows replay icon when video has ended
 class _PlayPauseBtn extends StatelessWidget {
   const _PlayPauseBtn({
     required this.isPlaying,
@@ -375,8 +382,8 @@ class _PlayPauseBtn extends StatelessWidget {
   final VoidCallback onPlay, onPause;
 
   IconData get _icon {
-    if (hasEnded)   return Icons.replay_rounded;
-    if (isPlaying)  return Icons.pause_rounded;
+    if (hasEnded)  return Icons.replay_rounded;
+    if (isPlaying) return Icons.pause_rounded;
     return Icons.play_arrow_rounded;
   }
 
@@ -468,7 +475,6 @@ class _SeekSectionState extends State<_SeekSection> {
                 child: Stack(
                   alignment: Alignment.center,
                   children: [
-                    // Background track
                     Container(
                       height: 3.h,
                       decoration: BoxDecoration(
@@ -476,12 +482,10 @@ class _SeekSectionState extends State<_SeekSection> {
                         borderRadius: BorderRadius.circular(2.r),
                       ),
                     ),
-                    // Buffered layer
                     Align(
                       alignment: Alignment.centerLeft,
                       child: FractionallySizedBox(
-                        widthFactor:
-                            (buffMs / safeMax).clamp(0.0, 1.0),
+                        widthFactor: (buffMs / safeMax).clamp(0.0, 1.0),
                         child: Container(
                           height: 3.h,
                           decoration: BoxDecoration(
@@ -491,7 +495,6 @@ class _SeekSectionState extends State<_SeekSection> {
                         ),
                       ),
                     ),
-                    // Active slider — transparent inactive track
                     SliderTheme(
                       data: SliderTheme.of(context).copyWith(
                         activeTrackColor:   Colors.white,
@@ -523,8 +526,6 @@ class _SeekSectionState extends State<_SeekSection> {
                   ],
                 ),
               ),
-
-              // Time row
               Padding(
                 padding: EdgeInsets.symmetric(horizontal: 4.w),
                 child: Row(
@@ -563,9 +564,6 @@ class _SeekSectionState extends State<_SeekSection> {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Action strip
-// Receives individual field values — never a state snapshot — to prevent the
-// stale-state bug where the outer buildWhen skips a rebuild but _ActionStrip
-// still holds old isMuted / volume / playbackSpeed values.
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _ActionStrip extends StatelessWidget {
@@ -591,7 +589,6 @@ class _ActionStrip extends StatelessWidget {
       padding: EdgeInsets.fromLTRB(8.w, 2.h, 8.w, 10.h),
       child: Row(
         children: [
-          // Mute toggle icon
           IconButton(
             icon: Icon(
               isMuted
@@ -602,13 +599,8 @@ class _ActionStrip extends StatelessWidget {
             ),
             onPressed: () => bloc.add(const VideoToggleMuteEvent()),
           ),
-
-          // Inline volume slider — owns its own BlocBuilder
           _VolumeSlider(bloc: bloc),
-
           const Spacer(),
-
-          // Speed pill
           GestureDetector(
             onTap: () => _pickSpeed(context),
             child: Container(
@@ -630,45 +622,18 @@ class _ActionStrip extends StatelessWidget {
             ),
           ),
           SizedBox(width: 6.w),
-
-          // Subtitles — snackbar (no subtitle system yet)
-          _SmallIconBtn(
-            icon:      Icons.subtitles_rounded,
-            onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content:         const Text(
-                    'Subtitles are not available for this video.'),
-                behavior:        SnackBarBehavior.floating,
-                backgroundColor: const Color(0xFF2C2C2E),
-                duration:        const Duration(seconds: 2),
-              ),
-            ),
-          ),
-          SizedBox(width: 2.w),
-
-          // Fit mode — cycles Fit → Fill → Stretch, tooltip shows current mode
           Tooltip(
-            message:  fitMode.label,
+            message: fitMode.label,
             child: _SmallIconBtn(
               icon:      fitMode.icon,
+              // BUG FIX: was calling a local setState that only changed the
+              // icon on this widget.  Now calls the parent callback so the
+              // video surface's BoxFit actually changes.
               onPressed: onCycleFit,
             ),
           ),
           SizedBox(width: 2.w),
-
-          // PiP placeholder
-          _SmallIconBtn(
-            icon:      Icons.picture_in_picture_alt_rounded,
-            onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content:         const Text(
-                    'Picture-in-picture is not yet supported.'),
-                behavior:        SnackBarBehavior.floating,
-                backgroundColor: const Color(0xFF2C2C2E),
-                duration:        const Duration(seconds: 2),
-              ),
-            ),
-          ),
+          
         ],
       ),
     );
@@ -736,9 +701,7 @@ class _ActionStrip extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Volume slider — scoped BlocBuilder so only it rebuilds on volume ticks.
-// Reads isMuted from fresh state, NOT from a prop, to avoid the stale-prop
-// bug where the outer buildWhen filtered a mute rebuild.
+// Volume slider
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _VolumeSlider extends StatelessWidget {
@@ -756,7 +719,6 @@ class _VolumeSlider extends StatelessWidget {
       },
       builder: (context, state) {
         if (state is! VideoReady) return const SizedBox.shrink();
-        // When muted, show slider at 0 without changing the stored volume.
         final displayVol = state.isMuted ? 0.0 : state.volume;
 
         return SizedBox(
@@ -775,7 +737,6 @@ class _VolumeSlider extends StatelessWidget {
               value:    displayVol,
               min:      0,
               max:      1,
-              // VideoBloc._onVolume handles auto-unmute when v > 0.
               onChanged: (v) => bloc.add(VideoSetVolumeEvent(v)),
             ),
           ),
