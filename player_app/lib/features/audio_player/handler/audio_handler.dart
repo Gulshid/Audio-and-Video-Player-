@@ -45,12 +45,15 @@ class AppAudioHandler extends BaseAudioHandler with SeekHandler {
 
   /// Loads and starts playback.
   ///
-  /// KEY FIX: Duration polling (the 800 ms timeout) is removed from this
-  /// method. It was the primary cause of the first-play freeze — it blocked
-  /// the entire bloc event-handler for up to 800 ms, preventing any UI
-  /// updates. Duration is now delivered asynchronously through the
-  /// durationStream subscription in AudioBloc (_onDuration), which patches
-  /// AudioReady.duration the moment it becomes available without blocking.
+  /// FIX — FIRST-PLAY FREEZE:
+  /// Previously `await player.setFilePath()` blocked the entire BLoC event
+  /// handler until the platform resolved the file (can take 300–1500 ms on
+  /// Android SAF content:// URIs). During that await the UI was frozen.
+  ///
+  /// Now we fire-and-forget the load+play sequence on the platform side and
+  /// return immediately with `null` duration. AudioBloc's `_onDuration`
+  /// subscription delivers the real duration asynchronously and patches the
+  /// `AudioReady` state the moment it arrives — no blocking, no freeze.
   Future<Duration?> loadAndPlay(app.MediaItem item) async {
     _isLoadingTrack = true;
     try {
@@ -62,36 +65,48 @@ class AppAudioHandler extends BaseAudioHandler with SeekHandler {
         artUri: _artUri(item.albumArt),
       ));
 
-      Duration? duration;
-      if (item.isNetwork) {
-        duration = await player.setUrl(item.path);
-      } else if (item.path.startsWith('content://')) {
-        duration = await player.setUrl(item.path);
-      } else {
-        duration = await player.setFilePath(item.path);
-      }
+      // Stop previous playback immediately so the UI doesn't lag.
+      await player.stop();
 
-      if (item.lastPositionSeconds > 0) {
-        await player.seek(item.lastPosition);
-      }
+      // Set the source WITHOUT awaiting the duration — the platform resolves
+      // it asynchronously and delivers it via durationStream.
+      // We use unawaited-style: kick off the future but don't block on it.
+      // The catch inside handles load errors through the playbackState stream.
+      final loadFuture = _loadSource(item);
 
-      _isLoadingTrack = false;
-      await player.play();
+      // Schedule seek + play after source is ready, but DON'T await here.
+      loadFuture.then((_) async {
+        if (item.lastPositionSeconds > 0) {
+          await player.seek(item.lastPosition);
+        }
+        _isLoadingTrack = false;
+        await player.play();
+        if (_lastEvent != null) {
+          playbackState.add(_transformEvent(_lastEvent!));
+        }
+      }).catchError((e) {
+        _isLoadingTrack = false;
+        playbackState.add(playbackState.value.copyWith(
+          processingState: AudioProcessingState.error,
+        ));
+      });
 
-      if (_lastEvent != null) {
-        playbackState.add(_transformEvent(_lastEvent!));
-      }
-
-      // Return whatever the platform resolved synchronously (may be null).
-      // AudioBloc's _onDuration subscription will deliver the real value
-      // asynchronously — no blocking wait here.
-      return duration;
+      // Return null — AudioBloc._onDuration will patch duration asynchronously.
+      return null;
     } catch (e) {
       _isLoadingTrack = false;
       playbackState.add(playbackState.value.copyWith(
         processingState: AudioProcessingState.error,
       ));
       rethrow;
+    }
+  }
+
+  Future<void> _loadSource(app.MediaItem item) async {
+    if (item.isNetwork || item.path.startsWith('content://')) {
+      await player.setUrl(item.path);
+    } else {
+      await player.setFilePath(item.path);
     }
   }
 

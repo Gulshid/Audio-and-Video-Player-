@@ -9,6 +9,7 @@ import '../../../playlist/bloc/playlist_state.dart';
 import '../../bloc/video_bloc.dart';
 import '../../bloc/video_event.dart';
 import '../../bloc/video_state.dart';
+import '../pages/video_player_page.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Fit mode — cycles: fit → fill → stretch → fit …
@@ -47,9 +48,12 @@ class VideoControls extends StatefulWidget {
   const VideoControls({
     required this.locked,
     required this.onToggleLock,
+    required this.fitMode,
+    required this.onCycleFitMode,
     super.key,
   });
-
+  final VideoFitMode fitMode;
+  final VoidCallback onCycleFitMode;
   final bool         locked;
   final VoidCallback onToggleLock;
 

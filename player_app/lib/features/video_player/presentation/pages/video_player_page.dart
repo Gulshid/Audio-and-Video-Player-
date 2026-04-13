@@ -40,6 +40,32 @@ class VideoPlayerPage extends StatefulWidget {
   State<VideoPlayerPage> createState() => _VideoPlayerPageState();
 }
 
+// Fit mode enum — shared between page and controls
+enum VideoFitMode { fit, fill, stretch }
+
+extension VideoFitModeX on VideoFitMode {
+  VideoFitMode get next =>
+      VideoFitMode.values[(index + 1) % VideoFitMode.values.length];
+
+  IconData get icon => switch (this) {
+        VideoFitMode.fit     => Icons.fit_screen_rounded,
+        VideoFitMode.fill    => Icons.crop_rounded,
+        VideoFitMode.stretch => Icons.open_in_full_rounded,
+      };
+
+  String get label => switch (this) {
+        VideoFitMode.fit     => 'Fit',
+        VideoFitMode.fill    => 'Fill',
+        VideoFitMode.stretch => 'Stretch',
+      };
+
+  BoxFit get boxFit => switch (this) {
+        VideoFitMode.fit     => BoxFit.contain,
+        VideoFitMode.fill    => BoxFit.cover,
+        VideoFitMode.stretch => BoxFit.fill,
+      };
+}
+
 class _VideoPlayerPageState extends State<VideoPlayerPage> {
   // ── Controls visibility ───────────────────────────────────────────────────
   bool _showControls = true;
@@ -47,6 +73,11 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
 
   // ── Lock screen ───────────────────────────────────────────────────────────
   bool _locked = false;
+
+  // ── Fit mode — lifted here so _VideoSurface can use it ───────────────────
+  VideoFitMode _fitMode = VideoFitMode.fit;
+
+  void _cycleFitMode() => setState(() => _fitMode = _fitMode.next);
 
   // ── Seek ripple ───────────────────────────────────────────────────────────
   _SeekRipple? _seekRipple;
@@ -112,7 +143,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
   }
 }
 
- void _onControlInteraction() {
+void _onControlInteraction() {
   if (!mounted) return;
   if (!_showControls) setState(() => _showControls = true);
   _scheduleHide(); // always reset the 2s countdown
@@ -250,12 +281,14 @@ Widget build(BuildContext context) {
                   state: state,
                   showControls: _showControls,
                   locked: _locked,
+                  fitMode: _fitMode,
                   seekRipple: _seekRipple,
                   horizontalDragging: _horizontalDragging,
                   dragSeekMs: _dragSeekMs,
                   onVideoTap: _onVideoTap,
                   onControlInteraction: _onControlInteraction,
                   onToggleLock: _toggleLock,
+                  onCycleFitMode: _cycleFitMode,
                   onDoubleTapLeft: () => _doubleTapSeek(_SeekSide.left),
                   onDoubleTapRight: () => _doubleTapSeek(_SeekSide.right),
                   onHDragStart: _onHorizontalDragStart,
@@ -282,12 +315,14 @@ class _VideoSurface extends StatelessWidget {
     required this.state,
     required this.showControls,
     required this.locked,
+    required this.fitMode,
     required this.seekRipple,
     required this.horizontalDragging,
     required this.dragSeekMs,
     required this.onVideoTap,
     required this.onControlInteraction,
     required this.onToggleLock,
+    required this.onCycleFitMode,
     required this.onDoubleTapLeft,
     required this.onDoubleTapRight,
     required this.onHDragStart,
@@ -298,12 +333,14 @@ class _VideoSurface extends StatelessWidget {
   final VideoReady state;
   final bool showControls;
   final bool locked;
+  final VideoFitMode fitMode;
   final _SeekRipple? seekRipple;
   final bool horizontalDragging;
   final double dragSeekMs;
   final VoidCallback onVideoTap;
   final VoidCallback onControlInteraction;
   final VoidCallback onToggleLock;
+  final VoidCallback onCycleFitMode;
   final VoidCallback onDoubleTapLeft;
   final VoidCallback onDoubleTapRight;
   final GestureDragStartCallback onHDragStart;
@@ -321,22 +358,15 @@ class _VideoSurface extends StatelessWidget {
           onHorizontalDragStart: onHDragStart,
           onHorizontalDragUpdate: onHDragUpdate,
           onHorizontalDragEnd: onHDragEnd,
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final ratio = state.controller.value.aspectRatio;
-              final maxW = constraints.maxWidth;
-              final maxH = constraints.maxHeight;
-              final fitW = maxH * ratio;
-              final w = fitW > maxW ? maxW : fitW;
-              final h = fitW > maxW ? maxW / ratio : maxH;
-              return Center(
-                child: SizedBox(
-                  width: w,
-                  height: h,
-                  child: VideoPlayer(state.controller),
-                ),
-              );
-            },
+          child: SizedBox.expand(
+            child: FittedBox(
+              fit: fitMode.boxFit,
+              child: SizedBox(
+                width:  state.controller.value.size.width,
+                height: state.controller.value.size.height,
+                child:  VideoPlayer(state.controller),
+              ),
+            ),
           ),
         ),
 
@@ -375,7 +405,9 @@ class _VideoSurface extends StatelessWidget {
                   behavior: HitTestBehavior.translucent,
                   child: VideoControls(
                     locked: locked,
+                    fitMode: fitMode,
                     onToggleLock: onToggleLock,
+                    onCycleFitMode: onCycleFitMode,
                   ),
                 ),
               ),
